@@ -1,5 +1,0 @@
-name = Medical ID Fashions Post Affiliate Pro
-description = Provides custom features and overrides to commerce_post_afiiliate_pro
-core = 7.x
-
-dependencies[] = commerce_post_affiliate_pro

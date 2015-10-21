@@ -1,5 +1,0 @@
-name = Medical Id Fashions Site Custom Bracelets Views
-description = Medical Id Fashions Site Customer Modifications of Associate Bracelets Views
-dependencies[] = views
-package = MedIDf
-core = 7.x

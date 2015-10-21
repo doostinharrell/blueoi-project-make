@@ -1,5 +1,0 @@
-name = Checkout Pane Terms and Conditions
-description = Provides an additional checkout pane: Terms and Conditions
-package = MedIDf
-dependencies[] = commerce_checkout
-core = 7.x

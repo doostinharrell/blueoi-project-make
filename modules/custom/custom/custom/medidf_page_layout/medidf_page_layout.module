@@ -1,7 +1,0 @@
-<?php
-/**
- * @file
- * Code for the medidf_page_layout feature.
- */
-
-include_once 'medidf_page_layout.features.inc';

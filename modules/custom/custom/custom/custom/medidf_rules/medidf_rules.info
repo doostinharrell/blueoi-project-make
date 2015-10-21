@@ -1,7 +1,0 @@
-name = Medical Id Fashions Rules
-description = Provides additional rules options
-core = 7.x
-package = MedIDf
-
-dependencies[] = rules
-dependencies[] = commerce

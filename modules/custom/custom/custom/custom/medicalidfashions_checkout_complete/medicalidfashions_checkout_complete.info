@@ -1,3 +1,0 @@
-name = MedicalIDFashions Checkout Complete
-description = Provides method of fixing orders that get kicked back and do not complete checkout process properly.
-core = 7.x

@@ -1,6 +1,0 @@
-name = Medical ID Fashions Engraving Features
-description = The Site's Engraving Features. Engraving Field and Engraving Line Item.
-package = MedIDf
-dependencies[] = commerce_line_item
-dependencies[] = field_ui
-core = 7.x

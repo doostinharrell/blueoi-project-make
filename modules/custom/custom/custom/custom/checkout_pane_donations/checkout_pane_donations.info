@@ -1,5 +1,0 @@
-name = Checkout Pane Donations
-description = Provides an additional checkout pane: Donations
-package = MedIDf
-dependencies[] = commerce_checkout
-core = 7.x
