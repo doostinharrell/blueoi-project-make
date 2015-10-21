@@ -1,0 +1,35 @@
+<?php
+
+/**
+ * @file
+ * Handles installation for Commerce Stamps.com module.
+ */
+
+/**
+ * Implements hook_uninstall().
+ */
+function commerce_stamps_com_uninstall() {
+  $variables = array(
+    'commerce_stamps_com_integration_id',
+    'commerce_stamps_com_username',
+    'commerce_stamps_com_password',
+    'commerce_stamps_com_shipping_services',
+    'commerce_stamps_com_server',
+    'commerce_stamps_com_indicium',
+    'commerce_stamps_com_company_name',
+    'commerce_stamps_com_address_line_1',
+    'commerce_stamps_com_address_line_2',
+    'commerce_stamps_com_city',
+    'commerce_stamps_com_state',
+    'commerce_stamps_com_postal_code',
+    'commerce_stamps_com_phone',
+    'commerce_stamps_com_default_package',
+    'commerce_stamps_com_default_package_size_length',
+    'commerce_stamps_com_default_package_size_width',
+    'commerce_stamps_com_default_package_size_height',
+    'commerce_stamps_com_addons',
+  );
+  foreach ($variables as $variable) {
+    variable_del($variable);
+  }
+}

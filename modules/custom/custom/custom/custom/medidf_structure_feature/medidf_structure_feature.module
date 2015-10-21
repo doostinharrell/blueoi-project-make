@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the medidf_structure_feature feature.
+ */
+
+include_once 'medidf_structure_feature.features.inc';

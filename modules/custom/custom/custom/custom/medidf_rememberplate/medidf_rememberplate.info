@@ -1,0 +1,5 @@
+name = Medical ID Fashions Remember Selected Plate
+description = Remember Selected Plates on add2cart form
+package = MedIDf
+dependencies[] = commerce
+core = 7.x

@@ -1,0 +1,3 @@
+name = MedicalIDFashions Generic Line Item
+description = Provides a generic line item without product references.
+core = 7.x

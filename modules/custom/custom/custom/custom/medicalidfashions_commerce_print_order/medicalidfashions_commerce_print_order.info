@@ -1,0 +1,4 @@
+name = Medical ID Fashions Print Order
+description = Provides printable order for Medical ID Fashions
+core = 7.x
+package = Medical ID Fashions

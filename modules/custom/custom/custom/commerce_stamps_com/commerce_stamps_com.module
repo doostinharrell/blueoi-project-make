@@ -1,0 +1,1193 @@
+ <?php
+
+/**
+ * @file Provides Stamps.com integration for Drupsl Commerce
+ */
+
+define('COMMERCE_STAMPS_COM_USPS_TRACK_URL', 'https://tools.usps.com/go/TrackConfirmAction.action?tLabels=');
+
+/**
+ * Implements hook_menu().
+ */
+function commerce_stamps_com_menu() {
+  $items = array();
+  $items['admin/commerce/config/shipping/methods/stamps-com/edit'] = array(
+    'title' => 'Edit',
+    'description' => 'Stamps.com shipping settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_stamps_com_settings_form'),
+    'access arguments' => array('administer shipping'),
+    'file' => 'commerce_stamps_com.admin.inc',
+    'type' => MENU_LOCAL_TASK,
+    'context' => MENU_CONTEXT_INLINE,
+    'weight' => 0,
+  );
+  $items['admin/commerce/orders/%commerce_order/stamps-com'] = array(
+    'title' => 'Stamps.com',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_stamps_com_get_label_form', 3),
+    'access callback' => 'commerce_stamps_com_administer_access',
+    'access arguments' => array(3),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 11,
+    'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
+  );
+  $items['admin/commerce/orders/%commerce_order/stamps-com/print'] = array(
+    'title' => 'Stamps.com',
+    'page callback' => 'commerce_stamps_com_print_indicium_label',
+    'access arguments' => array('administer shipping'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['admin/commerce/orders/%commerce_order/stamps-com/delete/%'] = array(
+    'title' => 'Delete indicium',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('commerce_stamps_com_cancel_indicium_form', 3, 6),
+    'access arguments' => array('administer shipping'),
+    'type' => MENU_CALLBACK,
+  );
+  return $items;
+}
+
+/**
+ * Access callback for mangaing Stamps.com lables on an order.
+ */
+function commerce_stamps_com_administer_access($order) {
+  $address = _commerce_stamps_com_get_recipient_address($order);
+  if (empty($address)) {
+    return FALSE;
+  }
+  return user_access('administer shipping');
+}
+
+/**
+ * Implements hook_commerce_shipping_method_info().
+ */
+function commerce_stamps_com_commerce_shipping_method_info() {
+  return array(
+    'stamps_com' => array(
+      'title' => t('Stamps.com'),
+      'description' => t('Stamps.com shipping services.'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_commerce_shipping_service_info().
+ */
+function commerce_stamps_com_commerce_shipping_service_info() {
+  $services = array();
+  $available = _commerce_stamps_com_shipping_services();
+  $enabled = variable_get('commerce_stamps_com_shipping_services', array());
+
+  // Add enabled Stamps.com shipping services.
+  foreach ($enabled as $service) {
+    if ($service) {
+      $machine_name = $service;
+      $services[$machine_name] = array(
+        'title' => $available[$service],
+        'description' => t('Stamps.com @service service', array('@service' => $available[$service])),
+        'display_title' => $available[$service],
+        'shipping_method' => 'stamps_com',
+        'price_component' => 'shipping',
+        'callbacks' => array(
+          'rate' => 'commerce_stamps_com_get_order_rates',
+        ),
+      );
+    }
+  }
+
+  return $services;
+}
+
+/**
+ * Shipping callback for calculating shipping rates for an order.
+ *
+ * @param $service array
+ * @param $order object
+ * @param $cache boolean
+ *   TRUE to use cached rates.
+ */
+function commerce_stamps_com_get_order_rates($service, $order, $cache = TRUE) {
+  // Check the cache to avoid multiple requests to stamps.com.
+  if ($cache) {
+    $rates = commerce_shipping_rates_cache_get('stamps_com', $order, 0);
+  }
+
+  if (!is_array($rates)) {
+    $rates = array();
+    $to = _commerce_stamps_com_get_recipient_address($order, TRUE);
+    $from = _commerce_stamps_com_get_sender_address();
+    $weight = commerce_physical_order_weight($order, 'lb');
+    $volume = commerce_physical_order_volume($order, 'in');
+
+    // If the country is us, make sure we have a zipcode set.
+    if ($to['Country'] == 'US' && empty($to['ZIPCode'])) {
+      return false;
+    }
+
+    // Determine the default package volume from the FedEx settings.
+    $default_package_volume = variable_get('commerce_stamps_com_default_package_size_length', '0') * variable_get('commerce_stamps_com_default_package_size_width', '0') * variable_get('commerce_stamps_com_default_package_size_height', '0');
+
+    // Calculate the number of packages that should be created based on the
+    // size of products and the default package volume.
+    $number_of_packages = !empty($overrides['number_of_packages']) ? $overrides['number_of_packages'] : ceil($volume['volume'] / $default_package_volume);
+
+    for ($i = 1; $i <= $number_of_packages; $i++) {
+      // Build the packages array to match the Stamps.com request rates array.
+      $packages[$i] = array(
+        'FromZIPCode' => $from['ZIPCode'],
+        'ToZIPCode' => $to['ZIPCode'],
+        'ToCountry' => $to['Country'],
+        'PackageType' => !empty($package) ? $package : variable_get('commerce_stamps_com_default_package', 'Package'),
+        'WeightLb' => $weight['weight'] / $number_of_packages,
+        'ShipDate' => format_date(strtotime('now + 2 days'), 'custom', 'Y-m-d'),
+        'InsuredValue' => _commerce_stamps_com_insurance_value($order) / $number_of_packages,
+      );
+    }
+
+    // Allow other modules to alter the packages in the order.
+    drupal_alter('commerce_stamps_com_get_order_rates_packages', $packages, $order);
+
+    foreach ($packages as $request) {
+      $response = commerce_stamps_com_get_rates($request);
+      $rates = commerce_stamps_com_process_rates($response, $rates, $request);
+    }
+
+    if (!empty($rates)) {
+      // We've received all of the rates for every shipping method. Cache the
+      // rates for this request so commerce_shipping doesn't generate any more
+      // SOAP requests.
+      commerce_shipping_rates_cache_set('stamps_com', $order, $rates);
+    }
+    else {
+      // If rates weren't set, then there was likely an error. Cache an empty
+      // array to prevent commerce_shipping from generating more SOAP requests.
+      commerce_shipping_rates_cache_set('stamps_com', $order, array());
+    }
+  }
+  // Return the rate for the requested service or FALSE if not found.
+  return isset($rates[$service['name']]) ? $rates[$service['name']] : FALSE;
+}
+
+/**
+ * Process the GetRates response from stamps.com
+ *
+ * @param  object $response
+ *   The stamps.com response for a rate request.
+ * @param array $rates
+ *   An existing rates array to append to.
+ * @param  array $request
+ *   Optinally provide the original request to have it appended to the response.
+ * @param string $service_type
+ *   Optionally provide a service type to return only that option.
+ */
+function commerce_stamps_com_process_rates($response, $rates = array(), $request = '', $service_type = '') {
+  if (!empty($response->Rates->Rate)) {
+    if (is_object($response->Rates->Rate)) {
+      $rate_obj = $response->Rates->Rate;
+      $response->Rates->Rate = array($rate_obj);
+    }
+    foreach ($response->Rates->Rate as $rate) {
+      // Instantiate an array for this rate type if it doesn't exist.
+      if (empty($rates[check_plain($rate->ServiceType)])) {
+        $rates[check_plain($rate->ServiceType)]['amount'] = 0;
+        $rates[check_plain($rate->ServiceType)]['currency_code'] = 'USD';
+        $rates[check_plain($rate->ServiceType)]['data'] = array();
+      }
+      $service_rate = (float) $rate->Amount;
+      $selected_addons = variable_get('commerce_stamps_com_addons');
+      // Loop throught the addons and add charges for requested addons.
+      if (!empty($rate->AddOns->AddOnV7) && !empty($selected_addons)) {
+        foreach($rate->AddOns->AddOnV7 as $addons) {
+          if (!empty($addons->Amount) && !empty($selected_addons[$addons->AddOnType])) {
+            $service_rate += (float) $addons->Amount;
+          }
+        }
+      }
+
+      $rates[check_plain($rate->ServiceType)]['data']['stamps_com_response'][] = array(
+        'name' => check_plain($rate->ServiceType),
+        'amount' => $service_rate,
+        'currency_code' => 'USD',
+        'rate' => $rate,
+        'package' => $request,
+      );
+
+      // Increase the shipping amount for each rate of this shipping type.
+      $rates[check_plain($rate->ServiceType)]['amount'] += commerce_currency_decimal_to_amount($service_rate, 'USD');
+    }
+  }
+
+  // Only return the rate for one service type if defined.
+  if (!empty($service_type) && !empty($rates[$service_type])) {
+    return $rates[$service_type];
+  }
+
+  return $rates;
+}
+
+/**
+ * Page callback for printing a label.
+ */
+function commerce_stamps_com_print_indicium_label() {
+  $indicium = $_GET['indicium'];
+  echo '<img src="' . urldecode($indicium) . '" width="380" height="608" />';
+}
+
+/**
+ * Form callback to build the purchase label form.
+ */
+function commerce_stamps_com_get_label_form($form, &$form_state, $order) {
+  $form_state['order'] = $order;
+  $recipient = _commerce_stamps_com_get_recipient_address($order);
+
+  // Make sure a valid shipping address is set on the order.
+  if ($recipient['country'] == 'US' && empty($recipient['postal_code'])) {
+    drupal_set_message(t('The shipping address must be valid to use this form'), 'error');
+    return array();
+  }
+
+  $form['recipient'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Shipping to:'),
+  );
+
+  $address = addressfield_generate($recipient, array('name-full', 'organisation', 'address'), array('mode' => 'render'));
+
+  $form['recipient']['address'] = array(
+    '#markup' => render($address),
+  );
+
+  // Load the shipping line item from the order (assumes/defaults to one line item).
+  $shipping_line_item = commerce_stamps_com_get_shipping_line_items($order);
+  $shipping_line_item = reset($shipping_line_item);
+
+  if (!empty($shipping_line_item)) {
+    $shipping_line_item_wrapper = entity_metadata_wrapper('commerce_line_item', $shipping_line_item);
+    $shipping_line_item_total = $shipping_line_item_wrapper->commerce_total->value();
+
+    $packages = array();
+    if (!empty($shipping_line_item_total['data']['stamps_com_response'])) {
+      // Cast to an array for backwards compatibility.
+      $packages = (array) $shipping_line_item_total['data']['stamps_com_response'];
+    }
+
+    $package_delta = 0;
+    $package_type = NULL;
+
+    // Show the packages that were originally quoted on the order.
+    if (!empty($packages)) {
+      $rows = array();
+      $header = array(
+        t('Package'),
+        t('Rate'),
+        t('Weight'),
+        t('Package Type'),
+        t('Estimated Value'),
+      );
+
+      foreach ($packages as $delta => $package) {
+        $rows[$delta] = array(
+          $delta+1,
+          $package['amount'],
+          $package['package']['WeightLb'],
+          $package['package']['PackageType'],
+          $package['package']['InsuredValue'],
+        );
+        if ($delta == $package_delta && !empty($package['rate'])) {
+          $package_type = $package['rate']->PackageType;
+        }
+      }
+      if (!empty($rows)) {
+        $form['quoted_packages'] = array(
+          '#type' => 'fieldset',
+          '#title' => t('Order shipping quote details'),
+          '#description' => t('The customer was charged @total for shipping based on the following package(s):', array('@total' => commerce_currency_format($shipping_line_item_total['amount'], $shipping_line_item_total['currency_code']))),
+          '#collapsible' => TRUE,
+          '#collapsed' => TRUE,
+        );
+        $form['quoted_packages']['list'] = array(
+          '#markup' => theme('table', array('header' => $header, 'rows' => $rows)),
+        );
+      }
+    }
+  }
+
+  $form['stamps_wrapper'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Purchase and print Stamps.com postage'),
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+
+  $selected_services = variable_get('commerce_stamps_com_shipping_services');
+  $available_services = _commerce_stamps_com_shipping_services();
+
+  // Look in the form state and line item values for the default service type.
+  if (!empty($form_state['values']['service_type'])) {
+    $service_type = $form_state['values']['service_type'];
+  }
+  else if (!empty($shipping_line_item->data['shipping_service']['name'])){
+    $service_type = $shipping_line_item->data['shipping_service']['name'];
+  }
+  else{
+    $service_type = 'US-PM';
+  }
+
+  $form['stamps_wrapper']['service_type'] = array(
+    '#type' => 'select',
+    '#title' => 'Shipping service',
+    '#options' => array_intersect_key($available_services, array_filter($selected_services)),
+    '#default_value' => $service_type,
+  );
+
+  $form['stamps_wrapper']['package_type'] = array(
+    '#type' => 'select',
+    '#title' => t('Package size'),
+    '#options' => _commerce_stamps_com_packages(),
+    '#default_value' => !empty($package_type) ? $package_type : variable_get('commerce_stamps_com_default_package', 'Package'),
+    '#description' => t('Select the package size.'),
+  );
+
+  $order_weight = commerce_physical_order_weight($order, 'lb');
+  $form['stamps_wrapper']['package_weight'] = array(
+    '#type' => 'container',
+    '#prefix' => '<div class="container-inline" style="margin-bottom:20px">',
+    '#suffix' => '</div>',
+  );
+  $form['stamps_wrapper']['package_weight']['weight'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Package weight'),
+    '#size' => 5,
+    '#default_value' => !empty($order_weight['weight']) ? $order_weight['weight'] : NULL,
+  );
+  $form['stamps_wrapper']['package_weight']['unit'] = array(
+    '#type' => 'select',
+    '#options' => array('lb' => t('Pounds'), 'oz' => t('Ounces')),
+    '#default_value' => !empty($order_weight['unit']) ? $order_weight['unit'] : NULL,
+  );
+  $form['stamps_wrapper']['package_weight']['calculate'] = array(
+    '#type' => 'button',
+    '#value' => t('Calculate'),
+    '#ajax' => array(
+      'wrapper' => 'commerce-stamps-com-rate-return',
+      'callback' => 'commerce_stamps_com_get_ajax_rates',
+    ),
+  );
+
+  $package_value =  _commerce_stamps_com_insurance_value($order);
+  if (count($packages) >= 1) {
+    $package_value = $package_value / count($packages);
+  }
+  $form['stamps_wrapper']['package_value'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Package value'),
+    '#description' => t('A value is required for insurance and orders that require customs.'),
+    '#size' => 5,
+    '#default_value' => $package_value,
+  );
+
+  $rate_amount = NULL;
+
+  // If the form was submitted via the ajax callback.
+  if (!empty($form_state['triggering_element']) && $form_state['triggering_element']['#value'] == t('Calculate')) {
+    $rate = commerce_stamps_com_get_label_form_get_rate($form, $form_state);
+    if (!empty($rate)) {
+      // Set the rate amount string to provide the rate total.
+      $rate_amount =  t('Shipping cost') . ': ' . commerce_currency_format($rate['amount'], $rate['currency_code']);
+    }
+    else {
+      form_set_error('service_type', t('The selected shipping options are not available for this package.'));
+    }
+  }
+
+  $form['stamps_wrapper']['package_weight']['calculate_ajax'] = array(
+    '#markup' => '<div id="commerce-stamps-com-rate-return">' . $rate_amount . '</div>',
+  );
+
+  $form['stamps_wrapper']['actions'] = array(
+    '#type' => 'container',
+  );
+  $form['stamps_wrapper']['actions'] = array(
+    '#type' => 'submit',
+    '#value' => t('Purchase and Print'),
+  );
+
+  $form['shipping_labels'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Purchased shipping labels'),
+  );
+
+  if (!empty($order->data['stamps_com'])) {
+    foreach ($order->data['stamps_com'] as $key => $indicium) {
+      $form['shipping_labels']['label_' . $key] = array(
+        '#markup' => theme('commerce_stamps_com_admin_package', array('order' => $order, 'key' => $key, 'indicium' => $indicium)),
+      );
+    }
+  }
+
+  return $form;
+}
+
+/**
+ * Submit handler for requesting indicium/labels.
+ */
+function commerce_stamps_com_get_label_form_submit(&$form, &$form_state) {
+  $order = $form_state['order'];
+  $rates = commerce_stamps_com_get_label_form_get_rate($form, $form_state);
+
+  // Make sure that the rate we're expecting was actually returned.
+  if (empty($rates['data']['stamps_com_response'][0]['rate'])) {
+    drupal_set_message(t('There were no rates based on your submitted values. Check your settings and try again.'), 'error');
+    return FALSE;
+  }
+
+  $rate = $rates['data']['stamps_com_response'][0]['rate'];
+
+  // If a rate was returned successfully then request the indicium.
+  if (!empty($rate)) {
+    $sample = variable_get('commerce_stamps_com_indicium', 'test') == 'test' ? TRUE : FALSE;
+    $indicium = commerce_stamps_com_create_indicium($form_state['order'], $rate, $sample);
+
+    if (!empty($indicium) && !empty($indicium->URL)) {
+      $order->data['stamps_com'][] = $indicium;
+      commerce_order_save($order);
+    }
+  }
+}
+
+/**
+ * Fetches the rate object for the form submit or ajax callback.
+ */
+function commerce_stamps_com_get_label_form_get_rate($form, $form_state) {
+  $order = $form_state['order'];
+  $service_type = $form_state['values']['service_type'];
+  $weight = $form_state['values']['weight'];
+  $unit = $form_state['values']['unit'];
+  $package_type = $form_state['values']['package_type'];
+  $to = _commerce_stamps_com_get_recipient_address($order, TRUE);
+  $from = _commerce_stamps_com_get_sender_address();
+
+  // Convert oz to lb.
+  if ($unit == 'oz') {
+    $weight = physical_weight_convert(array('weight' => $weight, 'unit' => 'oz'), 'lb');
+    $weight = $weight['weight'];
+  }
+
+  $services = commerce_shipping_services();
+
+  // Build the request object from the submitted valuse.
+  $request = array(
+    'FromZIPCode' => $from['ZIPCode'],
+    'ToZIPCode' => $to['ZIPCode'],
+    'ToCountry' => $to['Country'],
+    'PackageType' => $package_type,
+    'WeightLb' => $weight,
+    'ShipDate' => format_date(strtotime('now'), 'custom', 'Y-m-d'),
+  );
+
+  if (!empty($form_state['values']['package_value'])) {
+    if (_commerce_stamps_com_include_insurance()) {
+      $request['InsuredValue'] = $form_state['values']['package_value'];
+    }
+    $request['DeclaredValue'] = $form_state['values']['package_value'];
+  }
+
+  // Submit and process the rate request for the selected rate.
+  $response = commerce_stamps_com_get_rates($request);
+  $rates = commerce_stamps_com_process_rates($response, array(), $request, $service_type);
+  return $rates;
+}
+
+/**
+ * Ajax callback for returning rates to the admin form.
+ */
+function commerce_stamps_com_get_ajax_rates($form, &$form_state) {
+  return $form['stamps_wrapper']['package_weight']['calculate_ajax'];
+}
+
+function commerce_stamps_com_theme() {
+  return array(
+    'commerce_stamps_com_admin_package' => array(
+      'variables' => array('order' => NULL, 'key' => NULL, 'indicium' => NULL),
+    ),
+  );
+}
+
+function theme_commerce_stamps_com_admin_package($variables) {
+  $order = $variables['order'];
+  $indicium = $variables['indicium'];
+  $key = $variables['key'];
+  $shipping_services = _commerce_stamps_com_shipping_services();
+
+  $header = array(
+    t('Package'),
+    t('Service'),
+    t('Estimated Delivery'),
+    t('Tracking'),
+    t('Total'),
+    t('Options'),
+  );
+
+  if (!empty($indicium->status) && $indicium->status == 'canceled') {
+    $tracking = $indicium->TrackingNumber . ' (VOID)';
+    $options = '<strong>' . t('Postage Canceled') . '</strong>';
+    $amount = '- $' . check_plain($indicium->Rate->Amount);
+  }
+  else {
+    $tracking = l(check_plain($indicium->TrackingNumber), COMMERCE_STAMPS_COM_USPS_TRACK_URL . check_plain($indicium->TrackingNumber), array('external' => TRUE, 'attributes' => array('target' => '_blank')));
+
+    if (preg_match('/\.pdf\?/', $indicium->URL)) {
+      $options = l(t('Print postage'), $indicium->URL, array('attributes' => array('target' => '_blank')));
+    }
+    else {
+      $print_url = 'admin/commerce/orders/' . $order->order_id . '/stamps-com/print/';
+      $options = l(t('Print postage'), $print_url, array('query' => array('indicium' => urlencode($indicium->URL)), 'attributes' => array('target' => '_blank')));
+    }
+
+    $options .= ' | ' . l('Cancel postage', 'admin/commerce/orders/' .$order->order_id. '/stamps-com/delete/' . $key);
+    $amount = '$' . check_plain($indicium->Rate->Amount);
+  }
+
+  $rows = array(
+    array(
+      check_plain($indicium->Rate->PackageType) . ' ' . check_plain($indicium->Rate->WeightLb) . ' lbs',
+      $shipping_services[check_plain($indicium->Rate->ServiceType)],
+      check_plain($indicium->Rate->DeliverDays),
+      $tracking,
+      $amount,
+      $options,
+    )
+  );
+
+  return theme('table', array('header' => $header, 'rows' => $rows));
+}
+
+/**
+ * Form callback for canceling an indicium.
+ */
+function commerce_stamps_com_cancel_indicium_form($form, &$form_state, $order, $index) {
+  $form_state['order'] = $order;
+  $form_state['stamps_com_index'] = $index;
+
+  $output = confirm_form($form,
+    t('Are you sure you want to delete this indicium and issue a refund?'),
+    'admin/commerce/orders/' . $order->order_id . '/stamps-com',
+    '<p>' . t('You must make sure that the indicium is destroyed and not used for shipping products.') . '</p>',
+    t('Cancel indicium'),
+    t('Keep indicium'),
+    'confirm'
+  );
+
+  return $output;
+}
+
+/**
+ * Cancels and existing indicium and issues a refund.
+ */
+function commerce_stamps_com_cancel_indicium_form_submit($form, &$form_state) {
+  $order = $form_state['order'];
+  $index = $form_state['stamps_com_index'];
+  if (!empty($order->data['stamps_com'][$index])) {
+    $indicium = $order->data['stamps_com'][$index];
+    $response = commerce_stamps_com_cancel_indicium($indicium->StampsTxID, $indicium->TrackingNumber);
+    if(!empty($response)) {
+      $order->data['stamps_com'][$index]->status = 'canceled';
+      commerce_order_save($order);
+    }
+  }
+  $form_state['redirect'] = 'admin/commerce/orders/' . $order->order_id . '/stamps-com';
+}
+
+/**
+ * Initializes a Stamps.com SOAP client.
+ */
+function commerce_stamps_com_client($server = '') {
+  // Enable WSDL cache.
+  ini_set('soap.wsdl_cache_enabled', '0');
+  // Set the path to the Stamps.com WSDL file.
+
+  $server = empty($server) ? variable_get('commerce_stamps_com_server', 'testing') : $server;
+
+  $wsdl = drupal_get_path('module', 'commerce_stamps_com') . '/includes/' . $server . '/swsimv45.wsdl';
+
+  // Initiate the new SoapClient.
+  try {
+    $client = new SoapClient($wsdl, array('trace' => 1));
+  } catch (SoapFault $exception) {
+    watchdog('commerce_stamps_com', $exception->getMessage());
+    return FALSE;
+  }
+  return $client;
+}
+
+/**
+ * Method to load the existing or create a new Stamps.com authentication token.
+ */
+function commerce_stamps_com_authenticate($integration_id = NULL, $username = NULL, $password = NULL, $server = NULL) {
+  unset($_SESSION['commerce_stamps_com_authenticator']);
+  $authenticator = !empty($_SESSION['commerce_stamps_com_authenticator']) ? $_SESSION['commerce_stamps_com_authenticator'] : NULL;
+  if (empty($authenticator) || $authenticator['expire'] < strtotime('now')) {
+    // Build the user authentication array.
+    $user = array();
+    $user['Credentials']['IntegrationID'] = !empty($integration_id) ? $integration_id : variable_get('commerce_stamps_com_integration_id');
+    $user['Credentials']['Username'] = !empty($username) ? $username : variable_get('commerce_stamps_com_username');
+    $user['Credentials']['Password'] = !empty($password) ? $password : variable_get('commerce_stamps_com_password');
+    $client = commerce_stamps_com_client($server);
+    if (empty($client)) {
+      return FALSE;
+    }
+    try {
+      // Attempt to authenticate.
+      $response = $client->AuthenticateUser($user);
+      if (!empty($response->Authenticator)) {
+        // Set the expiration date for this time tomorrow.
+        $authenticator = array(
+          'expire' => strtotime('now + 1 day'),
+          'token' => $response->Authenticator,
+        );
+        // Set the authentication variables.
+        $_SESSION['commerce_stamps_com_authenticator'] = $authenticator;
+      }
+      else {
+        $_SESSION['commerce_stamps_com_authenticator'] = FALSE;
+        return FALSE;
+      }
+    } catch (SoapFault $exception) {
+      watchdog('commerce_stamps_com', $exception->getMessage());
+      $_SESSION['commerce_stamps_com_authenticator'] = FALSE;
+      return FALSE;
+    }
+  }
+  return $authenticator;
+}
+
+/**
+ * Wrapper to call the Stamps.com CleanseAddress method.
+ */
+function commerce_stamps_com_clense_address($address) {
+  $request = array(
+    'Address' => $address,
+  );
+  return commerce_stamps_com_request('CleanseAddress', $request);
+}
+
+/**
+ * Wrapper to call the Stamps.com GetRates method.
+ */
+function commerce_stamps_com_get_rates($request) {
+  return commerce_stamps_com_request('GetRates', array('Rate' => $request));
+}
+
+/**
+ * Authenticates and sends a Stamps.com SOAP request.
+ */
+function commerce_stamps_com_request($method, $request) {
+  if (!extension_loaded('soap')) {
+    drupal_set_message('PHP Soap is required for this module to integrate with Stamps.com', 'error');
+    return FALSE;
+  }
+  $authenticator = commerce_stamps_com_authenticate();
+
+  // Allow other modules the request before it's sent to stamps.com
+  drupal_alter('commerce_stamps_com_request', $request, $method);
+
+  if (!empty($authenticator)) {
+    $request['Authenticator'] = $authenticator['token'];
+    $client = commerce_stamps_com_client();
+    try {
+      $response = $client->$method($request);
+      if (!empty($response->Authenticator)) {
+        // Set the expiration date for this time tomorrow.
+        $authenticator = array(
+          'expire' => strtotime('now + 1 day'),
+          'token' => $response->Authenticator,
+        );
+        $_SESSION['commerce_stamps_com_authenticator'] = $authenticator;
+      }
+      return $response;
+    } catch (SoapFault $exception) {
+      watchdog('commerce_stamps_com', $exception->getMessage());
+      drupal_set_message(t("Stamps.com request failed with the following error: @error", array('@error' => check_plain($exception->faultstring))), 'error');
+    }
+  }
+}
+
+/**
+ * Creates a shippable indicium.
+ */
+function commerce_stamps_com_create_indicium($order, $rate, $sample = FALSE) {
+  $from_address = commerce_stamps_com_clense_address(_commerce_stamps_com_get_sender_address());
+
+  $to_address = _commerce_stamps_com_get_recipient_address($order, TRUE);
+
+  // Determine if we need to include customs info for this shipment.
+  if (_commerce_stamps_com_address_requires_customs($to_address)) {
+    $customs = _commerce_stamps_com_customs_object($order);
+
+    if ($rate->DeclaredValue >= 400 || $rate->ServiceType == 'US-PP') {
+      // Use the CP 72 form for parcel or orders over $400USD.
+      $rate->PrintLayout = 'NormalCP72';
+    }
+    else{
+      // Use the CN 22 form for all other customs orders.
+      $rate->PrintLayout = 'NormalCN22';
+    }
+  }
+
+  // Cleanse the address.
+  $to_address = commerce_stamps_com_clense_address($to_address);
+
+  if (empty($from_address->Address) || empty($to_address->Address)) {
+    drupal_set_message(t('We were unable to generate the cleansed address that\'s required to create an indicium, please try later'), 'error');
+    return FALSE;
+  }
+
+  // Add delivery confirmation so that we can print all indicium types.
+  $rate->AddOns = _commerce_stamps_com_filter_add_ons($rate->AddOns, array_filter(variable_get('commerce_stamps_com_addons')));
+
+  // If the original ship date has past, update the rate with todays date.
+  if (strtotime(date('Y-m-d')) > strtotime($rate->ShipDate)) {
+    $rate->ShipDate = date('Y-m-d');
+  }
+
+  $package = (!empty($order->data['stamps_com'])) ? count($order->data['stamps_com']) : 0;
+
+  $request = array(
+    'IntegratorTxID' => _commerce_stamps_com_get_integrator_transaction($order->order_id, $package),
+    'Rate' => $rate,
+    'From' => $from_address->Address,
+    'To' => $to_address->Address,
+    'SampleOnly' => $sample,
+  );
+
+  if (!empty($customs)) {
+    $request += array('Customs' => $customs, 'ImageType' => 'Pdf');
+  }
+
+  return commerce_stamps_com_request('CreateIndicium', $request);
+}
+
+function commerce_stamps_com_cancel_indicium($transaction_id, $tracking_number) {
+  $request = array(
+    'StampsTxID' => $transaction_id,
+    'TrackingNumber' => $tracking_number,
+  );
+
+  return commerce_stamps_com_request('CancelIndicium', $request);
+}
+
+function commerce_stamps_com_get_account_info() {
+  return commerce_stamps_com_request('GetAccountInfo', array());
+}
+
+/**
+ * Wrapper function to purchase more postage from Stamps.com.
+ *
+ * @param float $amount
+ *   The amount of postage to be purchased.
+ * @return object
+ *   The response from Stamps.com or FALSE if GetAccountInfo fails.
+ */
+function commerce_stamps_com_purchase_postage($amount) {
+  $account_info = commerce_stamps_com_get_account_info();
+  // ToDo: Create a way to generate and store IntegratorTxID for use with
+  // other methodes like GetPostageStatus.
+  if (!empty($account_info->AccountInfo->PostageBalance->ControlTotal)) {
+    $request = array(
+      'PurchaseAmount' => $amount,
+      'ControlTotal' => $account_info->AccountInfo->PostageBalance->ControlTotal,
+      'IntegratorTxID' => _commerce_stamps_com_get_integrator_transaction(),
+    );
+    return commerce_stamps_com_request('PurchasePostage', $request);
+  }
+  return FALSE;
+}
+
+function commerce_stamps_com_get_url() {
+  $request = array(
+    'URLType' => 'AccountSettingsPage',
+    'ApplicationContext' => NULL,
+  );
+  return commerce_stamps_com_request('GetURL', $request);
+}
+
+function commerce_stamps_com_get_shipping_line_items($order) {
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+  $line_items = array();
+  foreach ($order_wrapper->commerce_line_items as $delta => $line_item_wrapper) {
+    // If this line item is a shipping line item...
+    if ($line_item_wrapper->type->value() == 'shipping') {
+      $line_items[] = $line_item_wrapper->value();
+    }
+  }
+  return $line_items;
+}
+
+/**
+ *  Implements hook_entity_view_alter().
+ */
+function commerce_stamps_com_entity_view_alter(&$build, $type) {
+  // Alter the commerce order entity view to provide tracking information.
+  switch ($type) {
+    case 'commerce_order':
+      $order = $build['#entity'];
+      $build['tracking'] = array(
+        '#type' => 'fieldset',
+        '#title' => t('Order Tracking'),
+        '#weight' => -6,
+      );
+
+      $header = array(t('Tracking Number'), t('Estimated delivery days'));
+      if (!empty($order->data['stamps_com'])) {
+        foreach ($order->data['stamps_com'] as $shipment) {
+          if (empty($shipment->status) || $shipment->status != 'canceled') {
+            $rows[] = array(l($shipment->TrackingNumber, COMMERCE_STAMPS_COM_USPS_TRACK_URL . $shipment->TrackingNumber), $shipment->Rate->DeliverDays);
+          }
+        }
+      }
+
+      if (empty($rows)) {
+        $header = array(t('Shipment Information'));
+        $rows[] = array(t('Your order has not shipped yet or we are unable to provide tracking information at this time. Please contact us if you need assistance.'));
+      }
+
+      $build['tracking']['shipment'] = array(
+        '#markup' => theme('table', array('header' => $header, 'rows' => $rows)),
+      );
+    break;
+  }
+}
+
+/**
+ * Helper function to return an orders recipient address.
+ */
+function _commerce_stamps_com_get_recipient_address($order, $format = FALSE) {
+  $address = array();
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+  $field_name = commerce_physical_order_shipping_field_name($order);
+
+  // Prepare the shipping address for use in the request.
+  try {
+    $address = $order_wrapper->{$field_name}->commerce_customer_address->value();
+
+    $phone_field = variable_get('commerce_stamps_com_phone_field', NULL);
+    if (!empty($phone_field) && !empty($order_wrapper->{$field_name}->{$phone_field})) {
+      try {
+        $address['phone_number'] = $order_wrapper->{$field_name}->{$phone_field}->value();
+      } catch (EntityMetadataWrapperException $ex) {
+        $address['phone_number'] = variable_get('commerce_stamps_com_phone', '');
+      }
+    }
+  }
+  catch (EntityMetadataWrapperException $ex) {}
+
+  if (!empty($address) && $format) {
+    $address = _commerce_stamps_com_format_address($address);
+  }
+
+  return $address;
+}
+
+/**
+ * Returns the sender address in Stamps.com request.
+ */
+function _commerce_stamps_com_get_sender_address() {
+  return array(
+    'FullName' => variable_get('commerce_stamps_com_company_name'),
+    'Company' => variable_get('commerce_stamps_com_company_name'),
+    'Address1' => variable_get('commerce_stamps_com_address_line_1'),
+    'Address2' => variable_get('commerce_stamps_com_address_line_2'),
+    'City' => variable_get('commerce_stamps_com_city'),
+    'State' => variable_get('commerce_stamps_com_state'),
+    'ZIPCode' => variable_get('commerce_stamps_com_postal_code'),
+    'PhoneNumber' => variable_get('commerce_stamps_com_phone'),
+  );
+}
+
+/**
+ * Formats a commerce address for Stamps.com request.
+ */
+function _commerce_stamps_com_format_address($address) {
+  $zip = _commerce_stamps_com_parse_zipcode($address['postal_code']);
+  $address = array(
+    'FullName' => !empty($address['name_line']) ? $address['name_line'] : $address['first_name'] . ' ' . $address['last_name'],
+    'Company' => !empty($address['organisation_name']) ? $address['organisation_name'] : '',
+    'Address1' => $address['thoroughfare'],
+    'Address2' => $address['premise'],
+    'City' => $address['locality'],
+    'State' => $address['administrative_area'],
+    'ZIPCode' => $zip['zip'],
+    'ZIPCodeAddOn' => $zip['addon'],
+    'Country' => $address['country'],
+    'PhoneNumber' => !empty($address['phone_number']) ? $address['phone_number'] : variable_get('commerce_stamps_com_phone_field', NULL),
+  );
+  return $address;
+}
+
+/**
+ * Helper function to build a unique transaction id.
+ *
+ * @param string $order_id
+ *   The order id.
+ * @param $package_id
+ *   The package id.
+ *
+ * @return string.
+ *    A string unique to the Stamps.com customer, order and package.
+ */
+function _commerce_stamps_com_get_integrator_transaction($order_id = NULL, $package_id = NULL) {
+  $integrator_txid = variable_get('commerce_stamps_com_username');
+
+  // If the order details are passed, add them to the id.
+  if (!empty($order_id)) {
+    $integrator_txid .= '_' . $order_id;
+    if (!empty($package_id)) {
+      $integrator_txid .= '_' . $package_id;
+    }
+  }
+  // If there is no order info, use the time.
+  else{
+    $integrator_txid .= '_' . strtotime('now');
+  }
+  return $integrator_txid;
+}
+
+/**
+ * Parses a zipcode 00000-0000 or 00000 format.
+ */
+function _commerce_stamps_com_parse_zipcode($zip) {
+  $zipcode = array();
+  if (strstr($zip, '-') &&  preg_match('/^([\d]+)-([\d]+)/', $zip, $matches)) {
+    $zipcode['zip'] = substr($matches[1], 0, 5);
+    $zipcode['addon'] = substr($matches[2], 0, 4);
+  }
+  else{
+    $zipcode['zip'] = substr($zip, 0, 5);
+    $zipcode['addon'] = substr($zip, 5, 4);
+  }
+  return $zipcode;
+}
+
+/**
+ * Helper function to filter the add ons of a rate object.
+ *
+ * @param object $rate_add_ons
+ *   An object of available add ons from a rate object.
+ * @param array $add_ons
+ *   Add ons that should be kept.
+ * @return array
+ *   An array containing only the kept add on objects.
+ */
+function _commerce_stamps_com_filter_add_ons($rate_add_ons, $add_ons = array()) {
+  $kept_add_ons = array();
+  foreach ($rate_add_ons->AddOnV7 as $key => $rate_add_on) {
+    if (in_array($rate_add_on->AddOnType, $add_ons)) {
+      $kept_add_ons[] = $rate_add_ons->AddOnV7[$key];
+    }
+  }
+  return $kept_add_ons;
+}
+
+/**
+ * Returns the available module variables.
+ */
+function _commerce_stamps_com_variables() {
+  return array(
+    'commerce_stamps_com_integration_id',
+    'commerce_stamps_com_username',
+    'commerce_stamps_com_password',
+    'commerce_stamps_com_shipping_services',
+    'commerce_stamps_com_server',
+    'commerce_stamps_com_indicium',
+    'commerce_stamps_com_company_name',
+    'commerce_stamps_com_address_line_1',
+    'commerce_stamps_com_address_line_2',
+    'commerce_stamps_com_city',
+    'commerce_stamps_com_state',
+    'commerce_stamps_com_postal_code',
+    'commerce_stamps_com_phone',
+    'commerce_stamps_com_default_package',
+    'commerce_stamps_com_default_package_size_length',
+    'commerce_stamps_com_default_package_size_width',
+    'commerce_stamps_com_default_package_size_height',
+    'commerce_stamps_com_addons',
+    'commerce_stamps_com_phone_field',
+  );
+}
+
+/**
+ * Returns the available USPS shipping methods.
+ */
+function _commerce_stamps_com_shipping_services() {
+  return array(
+    'US-FC' => t('USPS First-Class Mail'),
+    'US-MM' => t('USPS Media Mail'),
+    'US-PP' => t('USPS Parcel Post'),
+    'US-PM' => t('USPS Priority Mail'),
+    'US-XM' => t('USPS Express Mail'),
+    'US-EMI' => t('USPS Express Mail International'),
+    'US-PMI' => t('USPS Priority Mail International'),
+    'US-FCI' => t('USPS First Class Mail International'),
+    'US-CM' => t('USPS Critical Mail'),
+    'US-PS' => t('USPS Parcel Select'),
+    'US-LM' => t('USPS Library Mail'),
+  );
+}
+
+/**
+ * Returns the available Stamps.com package types.
+ */
+function _commerce_stamps_com_packages() {
+  return array(
+    'Postcard' => t('Postcard'),
+    'Letter' => t('Letter'),
+    'Large Envelope or Flat' => t('Large Envelope or Flat'),
+    'Thick Envelope' => t('Thick Envelope'),
+    'Package' => t('Package'),
+    'Flat Rate Box' => t('Flat Rate Box'),
+    'Small Flat Rate Box' => t('Small Flat Rate Box'),
+    'Large Flat Rate Box' => t('Large Flat Rate Box'),
+    'Flat Rate Envelope' => t('Flat Rate Envelope'),
+    'Flat Rate Padded Envelope' => t('Flat Rate Padded Envelope'),
+    'Large Package' => t('Large Package'),
+    'Oversized Package' => t('Oversized Package'),
+    'Regional Rate Box A' => t('Regional Rate Box A'),
+    'Regional Rate Box B' => t('Regional Rate Box B'),
+    'Regional Rate Box C' => t('Regional Rate Box C'),
+    'Legal Flat Rate Envelope' => t('Legal Flat Rate Envelope'),
+  );
+}
+
+/**
+ * Returns available USPS add ons.
+ */
+function _commerce_stamps_com_addons() {
+  return array(
+    'SC-A-HP' => t('Hidden Postage'),
+    'SC-A-INS' => t('Insurance'),
+    'SC-A-INSRM' => t('Insurance for Registered Mail'),
+    'US-A-CM' => t('Certified Mail'),
+    'US-A-COD' => t('Collect on Delivery'),
+    'US-A-COM' => t('Certificate of Mailing'),
+    'US-A-DC' => t('Delivery Confirmation'),
+    'US-A-ESH' => t('USPS Express – Sunday / Holiday Guaranteed'),
+    'US-A-INS' => t('USPS Insurance'),
+    'US-A-NDW' => t('USPS Express – No Delivery on Saturdays'),
+    'US-A-RD' => t('Restricted Delivery'),
+    'US-A-REG' => t('Registered Mail'),
+    'US-A-RR' => t('Retrun Reciept Requested'),
+    'US-A-RRM' => t('Return Receipt for Merchandise'),
+    'US-A-SC' => t('USPS Signature Confirmation'),
+    'US-A-SH' => t('Special Handling'),
+    'US-A-WDS' => t('USPS Express – Waive Delivery Signature'),
+    'US-A-NDW' => t('Do not Deliver on a Saturday'),
+    'S-A-ESH' => t('Sunday/Holiday Guaranteed'),
+    'US-A-NND' => t('Notice of non-delivery'),
+  );
+}
+
+/**
+ * Helper function to determine if we should add insurance to the rates.
+ */
+function _commerce_stamps_com_include_insurance() {
+  $addons =variable_get('commerce_stamps_com_addons');
+  $insurance_addons = array(
+    'SC-A-INS',
+    'SC-A-INSRM',
+    'US-A-INS',
+  );
+  return array_intersect(array_filter($addons), $insurance_addons);
+}
+
+/**
+ * Determins the insurance value of an order.
+ */
+function _commerce_stamps_com_insurance_value($order) {
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+  $order_total = $order_wrapper->commerce_order_total->value();
+  $insurance_value = 0;
+
+  // Loop over each line item on the order.
+  foreach ($order_wrapper->commerce_line_items as $line_item_wrapper) {
+
+    // Only collect value of product line items that are shippable.
+    if (in_array($line_item_wrapper->type->value(), commerce_product_line_item_types())
+        && commerce_physical_line_item_shippable($line_item_wrapper->value())) {
+      $line_item_total = $line_item_wrapper->commerce_total->value();
+
+      // Increment the insurance value from the line items value.
+      $insurance_value += commerce_currency_amount_to_decimal($line_item_total['amount'], $line_item_total['currency_code']);
+    }
+  }
+
+  return $insurance_value;
+}
+
+/**
+ * Helper function to determine if the order requires US customs information.
+ */
+function _commerce_stamps_com_address_requires_customs($address) {
+  if ($address['Country'] != 'US') {
+    return TRUE;
+  }
+
+  $customs_territories = array('AA','AE','AP','AS','FM','GU','MH','MP','PW','PR','VI');
+  if (in_array($address['State'], $customs_territories)) {
+    return TRUE;
+  }
+
+  return FALSE;
+}
+
+/**
+ * Builds the customs object for international orders.
+ */
+function _commerce_stamps_com_customs_object($order) {
+  $customs_lines = array();
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+  $count = 0;
+  foreach ($order_wrapper->commerce_line_items as $line_item_wrapper) {
+    // Only include the first 5 line items.
+    if ($count > 4) {
+      break;
+    }
+    $line_item = $line_item_wrapper->value();
+    if (!empty($line_item->commerce_product)) {
+      $value = $line_item_wrapper->commerce_total->value();
+      $value = commerce_currency_amount_to_decimal($value['amount'], $value['currency_code']);
+      $weight = commerce_physical_product_line_item_weight($line_item);
+      $lb = physical_weight_convert($weight, 'lb');
+      $customs_lines[] = array(
+        'Description' => $line_item_wrapper->commerce_product->title->value(),
+        'Quantity' => $line_item->quantity,
+        'Value' => $value,
+        'WeightLb' => $lb['weight'],
+      );
+    }
+    $count++;
+  }
+
+  $customs = array(
+    'ContentType' => 'Other',
+    'CustomsLines' => $customs_lines,
+  );
+
+  return $customs;
+}
+
+ /**
+  * Returns available fields from customer profile entities for phone number.
+  */
+ function _commerce_stamps_com_phone_field_names() {
+   $field_instances = field_info_instances('commerce_customer_profile');
+   $options = array();
+   foreach ($field_instances as $bundle => $fields) {
+     foreach ($fields as $field_name => $field) {
+       if ($field_name != 'commerce_customer_address') {
+         $options[$field_name] = $field_name;
+       }
+     }
+   }
+   return $options;
+ }

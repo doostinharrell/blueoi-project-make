@@ -1,0 +1,44 @@
+<?php
+
+
+function medidf_migrate_flush_caches() {
+  $common_arguments = array(
+    'source_connection' => 'd6',
+    'source_version' => '6',
+  );
+
+  $migrations = array(
+    'medidf_migrate_migrate_users',
+    'medidf_migrate_migrate_order',
+    'medidf_migrate_migrate_order_line_items',
+  );
+
+  foreach($migrations as $migration) {
+    $migration($common_arguments);
+  }
+}
+
+function medidf_migrate_migrate_users($common_arguments) {
+  $user_arguments = array_merge($common_arguments, array(
+    'machine_name' => 'User',
+    'description' => 'Migrate Users from D6',
+  ));
+  Migration::registerMigration('DrupalUser6Migration', $user_arguments['machine_name'], $user_arguments);
+}
+
+function medidf_migrate_migrate_order($common_arguments) {
+  $order_arguments = array_merge($common_arguments, array(
+    'machine_name' => 'Order',
+    'description' => 'Migrate Orders',
+  ));
+  Migration::registerMigration('MedidfOrder', $order_arguments['machine_name'], $order_arguments);
+}
+
+function medidf_migrate_migrate_order_line_items($common_arguments) {
+  $line_item_arguments = array_merge($common_arguments, array(
+    'machine_name' => 'OrderLineItem',
+    'description' => 'Migrate Order Line Items',
+  ));
+  Migration::registerMigration('MedidfOrderLineItem', $line_item_arguments['machine_name'], $line_item_arguments);
+}
+

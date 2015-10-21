@@ -1,0 +1,27 @@
+// Blocks
+.block {}
+.block-title {}
+.block-content {}
+
+// Drupal sytem blocks:
+// .block-search {}
+// .block-system {}
+
+.block-facetapi {
+  margin-bottom: 2em;
+  .block-title {
+    font-size: em-calc(24);
+  }
+  .facetapi-facetapi-checkbox-links {
+    margin: 0;
+    padding: 0;
+    li {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+  }
+  .facetapi-checkbox {
+    margin: 0 .5em 0 0;
+  }
+}

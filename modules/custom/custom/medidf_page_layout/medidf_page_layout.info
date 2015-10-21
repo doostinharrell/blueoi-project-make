@@ -1,0 +1,12 @@
+name = medidf_page_layout
+core = 7.x
+package = Medical ID Fashions
+dependencies[] = ctools
+dependencies[] = page_manager
+features[ctools][] = page_manager:pages_default:1
+features[features_api][] = api:2
+features[page_manager_handlers][] = node_edit__bracelets
+features[page_manager_handlers][] = node_view__bracelets
+features[page_manager_handlers][] = node_view__default
+features[page_manager_handlers][] = term_view__catalog
+features[page_manager_pages][] = home_page

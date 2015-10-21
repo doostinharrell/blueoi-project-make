@@ -1,0 +1,395 @@
+<?php
+
+/**
+ * Implements hook_entity_info_alter().
+ *
+ * Adds a new order view mode, used to display the order in a megarow.
+ */
+function medicalidfashions_order_entity_info_alter(&$entity_info) {
+  $entity_info['commerce_order']['view modes']['medicalidfashions'] = array(
+    'label' => t('Medical ID Fashions Display'),
+    'custom settings' => FALSE,
+  );
+}
+
+/**
+ * Implements hook_theme().
+ */
+function medicalidfashions_order_theme(&$existing) {
+  $themes =  array(
+    'commerce_order__medicalidfashions_order' => array(
+      'path' => drupal_get_path('module', 'medicalidfashions_order') . '/theme',
+      'template' => 'commerce-order--medicalidfashions-order',
+    ),
+  );
+
+  return $themes;
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function medicalidfashions_order_form_commerce_checkout_form_complete_alter(&$form, &$form_state) {
+  // Add the adwords conversion code to the checkout complete page.
+  $form['adwords'] = array(
+    '#markup' => '
+        <!-- Google Code for Purchase Conversion Page -->
+        <script type="text/javascript">
+        /* <![CDATA[ */
+        var google_conversion_id = 982973691;
+        var google_conversion_language = "en";
+        var google_conversion_format = "2";
+        var google_conversion_color = "ffffff";
+        var google_conversion_label = "8orYCK3gnAwQ-_nb1AM";
+        var google_conversion_value = 0;
+        var google_remarketing_only = false;
+        /* ]]> */
+        </script>
+        <script type="text/javascript"
+        src="//www.googleadservices.com/pagead/conversion.js">
+        </script>
+        <noscript>
+        <div style="display:inline;">
+        <img height="1" width="1" style="border-style:none;" alt=""
+        src="//www.googleadservices.com/pagead/conversion/982973691/?value=0&amp;label=8orYCK3gnAwQ-_nb1AM&amp;guid=ON&amp;script=0"/>
+        </div>
+        </noscript>
+    ',
+  );
+
+  // Add the bing conversion code to checkout completion page.
+  $form['bing'] = array(
+    '#markup' => '<script type="text/javascript"> if (!window.mstag) mstag = {loadTag : function(){},time : (new Date()).getTime()};</script> <script id="mstag_tops" type="text/javascript" src="//flex.msn.com/mstag/site/1818af83-2932-42cc-a1e4-17ceb2cfd5be/mstag.js"></script> <script type="text/javascript"> mstag.loadTag("analytics", {dedup:"1",domainId:"3035799",type:"1",revenue:"35",actionid:"239471"})</script> <noscript> <iframe src="//flex.msn.com/mstag/tag/1818af83-2932-42cc-a1e4-17ceb2cfd5be/analytics.html?dedup=1&domainId=3035799&type=1&revenue=35&actionid=239471" frameborder="0" scrolling="no" width="1" height="1" style="visibility:hidden;display:none"> </iframe> </noscript>',
+  );
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function medicalidfashions_order_form_commerce_stamps_com_get_label_form_alter(&$form, &$form_state) {
+  // Add the ability to mark order complete from stamps.com tab.
+  $order = $form_state['order'];
+
+  $form['actions'] = array(
+    '#type' => 'container',
+    '#weight' => 10,
+  );
+
+  if ($order->status != 'completed') {
+    $form['actions']['submit'] = array(
+      '#type' => 'submit',
+      '#value' => t('Mark order complete'),
+      '#submit' => array('medicalidfashions_order_mark_order_complete'),
+    );
+  }
+  else{
+    $form['actions']['pending_orders'] = array(
+      '#markup' => l(t('Return to processing orders'), 'admin/commerce/orders'),
+    );
+  }
+}
+
+/**
+ * Submit handler to makr an order complete.
+ */
+function medicalidfashions_order_mark_order_complete($form, &$form_state) {
+  $order = $form_state['order'];
+  $order->status = 'completed';
+  commerce_order_save($order);
+  $form_state['redirect'] = 'admin/commerce/orders';
+}
+
+/**
+ * Add the template file for the backoffice view mode.
+ */
+function medicalidfashions_order_preprocess_entity(&$vars) {
+  if ($vars['entity_type'] == 'commerce_order' && in_array($vars['view_mode'], array('administrator', 'medicalidfashions'))) {
+    $vars['theme_hook_suggestions'][] = 'commerce_order__medicalidfashions_order';
+    $vars['classes_array'][] = 'commerce-order-medicalidfashions';
+    drupal_add_css(drupal_get_path('module', 'medicalidfashions_order') . '/theme/medicalidfashions-order.css');
+  }
+}
+
+function medicalidfashions_order_entity_view($entity, $type, $view_mode, $langcode) {
+  switch($type) {
+      case 'commerce_customer_profile':
+        if($entity->type == 'billing')
+        // Unset the phone number so that we can show it independently.
+        unset($entity->content['commerce_firstdata_billing_phone']);
+      break;
+      case 'commerce_order':
+        $order_wrapper = entity_metadata_wrapper('commerce_order', $entity);
+        $entity->content['order_number'] = $entity->order_number;
+        $entity->content['customer_email'] = $entity->mail;
+        if (user_access('administer commerce_order entities') && !empty($entity->field_order_source)) {
+          $entity->content['order_source'] = $order_wrapper->field_order_source->value();
+        }
+        $customer = user_load_by_mail($entity->mail);
+        $entity->content['customer_id'] = $customer->uid;
+        if (!empty($entity->commerce_customer_billing) && !empty($order_wrapper->commerce_customer_billing->value()->commerce_firstdata_billing_phone)) {
+          $phone_number = $order_wrapper->commerce_customer_billing->commerce_firstdata_billing_phone->value();
+        }
+        $entity->content['customer_phone'] = !empty($phone_number) ? $phone_number : '';
+
+        $payment_methods_array = commerce_payment_methods();
+        $entity->content['payments'] = array();
+        //Find transactions
+        foreach (commerce_payment_transaction_load_multiple(array(), array('order_id' => $entity->order_id)) as $transaction) {
+          if($transaction->status == 'success' && !empty($transaction->remote_id)) {
+            $payment_method = $payment_methods_array[$transaction->payment_method];
+            $entity->content['payments'][] = $payment_method['short_title'] . ' | ' . $transaction->remote_id;
+          }
+        }
+
+      break;
+  }
+}
+
+/**
+ * Alters the Commerce Order UI form. Disables order status when creating new order.
+ * Implements hook_form_alter().
+ */
+function medicalidfashions_order_form_alter(&$form, &$form_state, $form_id) {
+  if($form_id == 'commerce_order_ui_order_form') {
+    //Add our submit handler.
+    $form['actions']['submit']['#submit'][] = 'medicalidfashions_order_order_form_submit';
+
+    // Add a checkbox that allows admins to recalculate pricing rules on this order.
+    $form['actions']['pricing_rules'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Perform pricing rules on this order (ie: add sales tax to line items).'),
+      '#default_value' => FALSE,
+    );
+  }
+}
+
+/**
+ * This is fired after the main commerce_order_order_form_submit(). It takes the saved order and changes it's status to pending.
+ * this way admin created orders do not stay as a shopping cart and get taxes applie.
+ */
+function medicalidfashions_order_order_form_submit($form, &$form_state) {
+
+  // If the admin did not select the pricing rules checkbox then exit.
+  if (empty($form_state['values']['pricing_rules'])) {
+    return;
+  }
+
+  // Loop through the order line items and run them through the pricing rules.
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $form_state['commerce_order']);
+  foreach ($order_wrapper->commerce_line_items as $delta => $line_item_wrapper) {
+    $commerce_line_item = $line_item_wrapper->value();
+    rules_invoke_event('commerce_product_calculate_sell_price', $commerce_line_item);
+    commerce_line_item_save($commerce_line_item);
+    entity_get_controller('commerce_line_item')->resetCache(array($commerce_line_item->line_item_id));
+  }
+  commerce_order_save($order_wrapper->value());
+  $form_state['commerce_order'] = $order_wrapper->value();
+  drupal_set_message(t('Order line items have been updated by pricing rules'));
+}
+
+/**
+ * Implements hook_views_default_views_alter()
+ * Changes commerce_line_item_table.
+ */
+function medicalidfashions_order_views_default_views_alter(&$views) {
+  if (array_key_exists('commerce_line_item_table', $views)) {
+    $view = new view();
+    $view->name = 'commerce_line_item_table';
+    $view->description = 'Display a set of line items in a table.';
+    $view->tag = 'commerce';
+    $view->base_table = 'commerce_line_item';
+    $view->human_name = 'Line items';
+    $view->core = 0;
+    $view->api_version = '3.0';
+    $view->disabled = FALSE; /* Edit this to true to make a default view disabled initially */
+
+    /* Display: Defaults */
+    $handler = $view->new_display('default', 'Defaults', 'default');
+    $handler->display->display_options['use_more_always'] = FALSE;
+    $handler->display->display_options['access']['type'] = 'none';
+    $handler->display->display_options['cache']['type'] = 'none';
+    $handler->display->display_options['query']['type'] = 'views_query';
+    $handler->display->display_options['query']['options']['query_comment'] = FALSE;
+    $handler->display->display_options['exposed_form']['type'] = 'basic';
+    $handler->display->display_options['pager']['type'] = 'none';
+    $handler->display->display_options['style_plugin'] = 'table';
+    $handler->display->display_options['style_options']['columns'] = array(
+      'product_attributes' => 'product_attributes',
+      'field_engraving_line' => 'field_engraving_line',
+      'line_item_id' => 'line_item_id',
+      'type' => 'type',
+      'line_item_label' => 'line_item_label',
+      'line_item_title' => 'line_item_title',
+      'commerce_unit_price' => 'commerce_unit_price',
+      'quantity' => 'quantity',
+      'commerce_total' => 'commerce_total',
+    );
+    $handler->display->display_options['style_options']['default'] = '-1';
+    $handler->display->display_options['style_options']['info'] = array(
+      'product_attributes' => array(
+        'align' => '',
+        'separator' => '',
+        'empty_column' => 0,
+      ),
+      'field_engraving_line' => array(
+        'align' => '',
+        'separator' => '',
+        'empty_column' => 0,
+      ),
+      'line_item_id' => array(
+        'sortable' => 0,
+        'default_sort_order' => 'asc',
+        'align' => '',
+        'separator' => '',
+        'empty_column' => 0,
+      ),
+      'type' => array(
+        'sortable' => 0,
+        'default_sort_order' => 'asc',
+        'align' => '',
+        'separator' => '',
+        'empty_column' => 0,
+      ),
+      'line_item_label' => array(
+        'sortable' => 0,
+        'default_sort_order' => 'asc',
+        'align' => '',
+        'separator' => '',
+        'empty_column' => 0,
+      ),
+      'line_item_title' => array(
+        'align' => '',
+        'separator' => ' ',
+        'empty_column' => 0,
+      ),
+      'commerce_unit_price' => array(
+        'sortable' => 0,
+        'default_sort_order' => 'asc',
+        'align' => '',
+        'separator' => '',
+        'empty_column' => 0,
+      ),
+      'quantity' => array(
+        'sortable' => 0,
+        'default_sort_order' => 'asc',
+        'align' => '',
+        'separator' => '',
+        'empty_column' => 0,
+      ),
+      'commerce_total' => array(
+        'sortable' => 0,
+        'default_sort_order' => 'asc',
+        'align' => 'views-align-right',
+        'separator' => '',
+        'empty_column' => 0,
+      ),
+    );
+    /* No results behavior: Global: Text area */
+    $handler->display->display_options['empty']['area']['id'] = 'area';
+    $handler->display->display_options['empty']['area']['table'] = 'views';
+    $handler->display->display_options['empty']['area']['field'] = 'area';
+    $handler->display->display_options['empty']['area']['label'] = 'Empty line item text.';
+    $handler->display->display_options['empty']['area']['content'] = 'No line items found.';
+    $handler->display->display_options['empty']['area']['format'] = 'plain_text';
+    /* Field: Commerce Line Item: Product Attributes */
+    $handler->display->display_options['fields']['product_attributes']['id'] = 'product_attributes';
+    $handler->display->display_options['fields']['product_attributes']['table'] = 'commerce_line_item';
+    $handler->display->display_options['fields']['product_attributes']['field'] = 'product_attributes';
+    $handler->display->display_options['fields']['product_attributes']['label'] = '';
+    $handler->display->display_options['fields']['product_attributes']['exclude'] = TRUE;
+    $handler->display->display_options['fields']['product_attributes']['alter']['alter_text'] = TRUE;
+    $handler->display->display_options['fields']['product_attributes']['alter']['text'] = '<br />[product_attributes] inches';
+    $handler->display->display_options['fields']['product_attributes']['alter']['strip_tags'] = TRUE;
+    $handler->display->display_options['fields']['product_attributes']['alter']['preserve_tags'] = '<br>';
+    $handler->display->display_options['fields']['product_attributes']['element_label_colon'] = FALSE;
+    $handler->display->display_options['fields']['product_attributes']['show_link'] = 0;
+    $handler->display->display_options['fields']['product_attributes']['link_with_line_item'] = 0;
+    /* Field: Commerce Line item: Engraving Line */
+    $handler->display->display_options['fields']['field_engraving_line']['id'] = 'field_engraving_line';
+    $handler->display->display_options['fields']['field_engraving_line']['table'] = 'field_data_field_engraving_line';
+    $handler->display->display_options['fields']['field_engraving_line']['field'] = 'field_engraving_line';
+    $handler->display->display_options['fields']['field_engraving_line']['label'] = '';
+    $handler->display->display_options['fields']['field_engraving_line']['exclude'] = TRUE;
+    $handler->display->display_options['fields']['field_engraving_line']['element_label_colon'] = FALSE;
+    $handler->display->display_options['fields']['field_engraving_line']['type'] = 'field_collection_fields';
+    $handler->display->display_options['fields']['field_engraving_line']['settings'] = array(
+      'view_mode' => 'full',
+    );
+    $handler->display->display_options['fields']['field_engraving_line']['delta_offset'] = '0';
+    $handler->display->display_options['fields']['field_engraving_line']['separator'] = '';
+    /* Field: Commerce Line Item: Line item ID */
+    $handler->display->display_options['fields']['line_item_id']['id'] = 'line_item_id';
+    $handler->display->display_options['fields']['line_item_id']['table'] = 'commerce_line_item';
+    $handler->display->display_options['fields']['line_item_id']['field'] = 'line_item_id';
+    $handler->display->display_options['fields']['line_item_id']['label'] = 'ID';
+    $handler->display->display_options['fields']['line_item_id']['exclude'] = TRUE;
+    /* Field: Commerce Line Item: Type */
+    $handler->display->display_options['fields']['type']['id'] = 'type';
+    $handler->display->display_options['fields']['type']['table'] = 'commerce_line_item';
+    $handler->display->display_options['fields']['type']['field'] = 'type';
+    $handler->display->display_options['fields']['type']['exclude'] = TRUE;
+    $handler->display->display_options['fields']['type']['hide_alter_empty'] = FALSE;
+    /* Field: Commerce Line Item: Label */
+    $handler->display->display_options['fields']['line_item_label']['id'] = 'line_item_label';
+    $handler->display->display_options['fields']['line_item_label']['table'] = 'commerce_line_item';
+    $handler->display->display_options['fields']['line_item_label']['field'] = 'line_item_label';
+    $handler->display->display_options['fields']['line_item_label']['alter']['alter_text'] = TRUE;
+    $handler->display->display_options['fields']['line_item_label']['alter']['text'] = '([line_item_label])';
+    /* Field: Commerce Line Item: Title */
+    $handler->display->display_options['fields']['line_item_title']['id'] = 'line_item_title';
+    $handler->display->display_options['fields']['line_item_title']['table'] = 'commerce_line_item';
+    $handler->display->display_options['fields']['line_item_title']['field'] = 'line_item_title';
+    $handler->display->display_options['fields']['line_item_title']['alter']['text'] = '[line_item_title]
+    [product_attributes]
+    [field_engraving_line] ';
+    /* Field: Commerce Line item: Notes */
+    $handler->display->display_options['fields']['medicalidfashions_line_item_note']['id'] = 'medicalidfashions_line_item_note';
+    $handler->display->display_options['fields']['medicalidfashions_line_item_note']['table'] = 'field_data_medicalidfashions_line_item_note';
+    $handler->display->display_options['fields']['medicalidfashions_line_item_note']['field'] = 'medicalidfashions_line_item_note';
+    $handler->display->display_options['fields']['medicalidfashions_line_item_note']['alter']['alter_text'] = TRUE;
+    $handler->display->display_options['fields']['medicalidfashions_line_item_note']['alter']['text'] = '[medicalidfashions_line_item_note]
+    [field_engraving_line]
+    ';
+    $handler->display->display_options['fields']['medicalidfashions_line_item_note']['empty'] = '[field_engraving_line]';
+    $handler->display->display_options['fields']['medicalidfashions_line_item_note']['hide_alter_empty'] = FALSE;
+    /* Field: Commerce Line item: Unit price */
+    $handler->display->display_options['fields']['commerce_unit_price']['id'] = 'commerce_unit_price';
+    $handler->display->display_options['fields']['commerce_unit_price']['table'] = 'field_data_commerce_unit_price';
+    $handler->display->display_options['fields']['commerce_unit_price']['field'] = 'commerce_unit_price';
+    $handler->display->display_options['fields']['commerce_unit_price']['click_sort_column'] = 'amount';
+    $handler->display->display_options['fields']['commerce_unit_price']['type'] = 'commerce_price_formatted_amount';
+    /* Field: Commerce Line Item: Quantity */
+    $handler->display->display_options['fields']['quantity']['id'] = 'quantity';
+    $handler->display->display_options['fields']['quantity']['table'] = 'commerce_line_item';
+    $handler->display->display_options['fields']['quantity']['field'] = 'quantity';
+    $handler->display->display_options['fields']['quantity']['precision'] = '0';
+    /* Field: Commerce Line item: Total */
+    $handler->display->display_options['fields']['commerce_total']['id'] = 'commerce_total';
+    $handler->display->display_options['fields']['commerce_total']['table'] = 'field_data_commerce_total';
+    $handler->display->display_options['fields']['commerce_total']['field'] = 'commerce_total';
+    $handler->display->display_options['fields']['commerce_total']['click_sort_column'] = 'amount';
+    $handler->display->display_options['fields']['commerce_total']['type'] = 'commerce_price_formatted_amount';
+    /* Sort criterion: Commerce Line Item: Line item ID */
+    $handler->display->display_options['sorts']['line_item_id']['id'] = 'line_item_id';
+    $handler->display->display_options['sorts']['line_item_id']['table'] = 'commerce_line_item';
+    $handler->display->display_options['sorts']['line_item_id']['field'] = 'line_item_id';
+    /* Contextual filter: Commerce Line Item: Line item ID */
+    $handler->display->display_options['arguments']['line_item_id']['id'] = 'line_item_id';
+    $handler->display->display_options['arguments']['line_item_id']['table'] = 'commerce_line_item';
+    $handler->display->display_options['arguments']['line_item_id']['field'] = 'line_item_id';
+    $handler->display->display_options['arguments']['line_item_id']['default_action'] = 'empty';
+    $handler->display->display_options['arguments']['line_item_id']['default_argument_type'] = 'fixed';
+    $handler->display->display_options['arguments']['line_item_id']['summary']['number_of_records'] = '0';
+    $handler->display->display_options['arguments']['line_item_id']['summary']['format'] = 'default_summary';
+    $handler->display->display_options['arguments']['line_item_id']['summary_options']['items_per_page'] = '25';
+    $handler->display->display_options['arguments']['line_item_id']['break_phrase'] = TRUE;
+
+    /* Display: Block */
+    $handler = $view->new_display('block', 'Block', 'block_1');
+    $handler->display->display_options['defaults']['hide_admin_links'] = FALSE;
+
+    $views['commerce_line_item_table'] = $view;
+  }
+}
+
+?>

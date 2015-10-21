@@ -1,0 +1,6 @@
+name = Commerce Extra Tokens
+description = A module to provide extra tokens for Drupal Commerce
+package = Commerce (contrib)
+core = 7.x
+dependencies[] commerce
+dependencies[] commerce_order

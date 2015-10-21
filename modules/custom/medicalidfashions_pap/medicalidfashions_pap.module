@@ -1,0 +1,285 @@
+<?php
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function medicalidfashions_pap_form_user_profile_form_alter(&$form, &$form_state) {
+  if ($form['#user_category'] == 'account') {
+
+    $account = $form['#user'];
+    global $user;
+
+    if (!empty($account->affiliate_username)) {
+      $affiliate = medicalidfashions_pap_load_affiliate($account->affiliate_username);
+    }
+
+    $form['post_affiliate_user_settings']['affiliate_status'] = array(
+      '#type' => 'select',
+      '#weight' => 0,
+      '#title' => t('Affiliate Status'),
+      '#options' => array(
+        'P' => t('Pending'),
+        'A' => t('Approved'),
+        'C' => t('Declined'),
+      ),
+      '#default_value' => !empty($affiliate['status']) ? $affiliate['status'] : 'P',
+    );
+
+    if (!in_array('administrator', array_values($user->roles))) {
+      $form['post_affiliate_user_settings']['affiliate_status']['#access'] = FALSE;
+    }
+
+    $form['post_affiliate_user_settings']['#states'] = array(
+      'visible' => array(
+          ':input[name="roles[4]"]' => array('checked' => TRUE),
+      ),
+      'disabled' => array(
+          ':input[name="roles[4]"]' => array('checked' => FALSE),
+      ),
+    );
+
+    if (!empty($affiliate)) {
+      $link = url('<front>', array('absolute' => TRUE, 'query' => array('a_aid' => check_plain($affiliate['affiliate_refid']))));
+      $form['post_affiliate_user_settings']['affiliate_refid'] = array(
+        '#type' => 'item',
+        '#title' => t("Affiliate's Referrer ID"),
+        '#value' => check_plain($affiliate['affiliate_refid']),
+        '#description' => t('It is used by affiliate linking and redirects. Your affiliate link is: <a href="!url">!url</a>', array('!url' => $link)),
+      );
+    }
+
+    $form['post_affiliate_user_settings']['medical_id_fashions'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('Medical ID Fashions Required Fields'),
+      '#collapsible' => TRUE,
+      '#collapsed' => FALSE,
+      '#states' => array(
+        'required' => array(
+          ':input[name="roles[4]"]' => array('checked' => TRUE),
+        ),
+      ),
+    );
+
+    $form['post_affiliate_user_settings']['medical_id_fashions']['affiliate_company'] = array(
+      '#type' => 'textfield',
+      '#title' => t("Affiliate's Company"),
+      '#default_value' => !empty($affiliate['affiliate_company']) ? $affiliate['affiliate_company'] : NULL,
+      );
+
+    $form['post_affiliate_user_settings']['medical_id_fashions']['affiliate_web_url'] = array(
+      '#type' => 'textfield',
+      '#title' => t("Affiliate's Website"),
+      '#default_value' => !empty($affiliate['affiliate_web_url']) ? $affiliate['affiliate_web_url'] : NULL,
+      );
+
+    $form['post_affiliate_user_settings']['medical_id_fashions']['affiliate_street'] = array(
+      '#type' => 'textfield',
+      '#title' => t("Affiliate's Street"),
+      '#default_value' => !empty($affiliate['affiliate_street']) ? $affiliate['affiliate_street'] : NULL,
+      );
+
+    $form['post_affiliate_user_settings']['medical_id_fashions']['affiliate_city'] = array(
+      '#type' => 'textfield',
+      '#title' => t("Affiliate's City"),
+      '#default_value' => !empty($affiliate['affiliate_city']) ? $affiliate['affiliate_city'] : NULL,
+      );
+
+    $form['post_affiliate_user_settings']['medical_id_fashions']['affiliate_state'] = array(
+      '#type' => 'textfield',
+      '#title' => t("Affiliate's State"),
+      '#default_value' => !empty($affiliate['affiliate_state']) ? $affiliate['affiliate_state'] : NULL,
+      );
+
+    $form['post_affiliate_user_settings']['medical_id_fashions']['affiliate_country'] = array(
+      '#type' => 'textfield',
+      '#title' => t("Affiliate's Country"),
+      '#default_value' => !empty($affiliate['affiliate_country']) ? $affiliate['affiliate_country'] : NULL,
+      );
+
+
+    // Disable the form if the user is not an affiliate.
+    if (!in_array('affiliate', array_values($account->roles))) {
+      $form['post_affiliate_user_settings']['#access'] = FALSE;
+      $form['post_affiliate_user_settings']['affiliate_username']['#default_value'] = NULL;
+    }
+  }
+}
+
+
+/**
+ * Implements hook_user_update();
+*/
+function medicalidfashions_pap_user_update(&$edit, $account, $category) {
+
+  // Do not continue unless the user is an affilate.
+  if (!in_array('affiliate', array_values($account->roles))) {
+    return;
+  }
+
+  // Use empty because 0 is invalid for any of these fields.
+  if (!empty($edit['affiliate_username']) && !empty($edit['affiliate_password']) && !empty($edit['affiliate_refid'])) {
+    // inserting new affiliate
+    medicalidfashions_pap_register_affiliate($edit, $account);
+  }
+  elseif (!empty($account->affiliate_username)) {
+    medicalidfashions_pap_update_affiliate($edit, $account);
+  }
+}
+
+
+/**
+ * Implements hook_module_implements_alter()
+ */
+function medicalidfashions_pap_module_implements_alter(&$implementations, $hook) {
+  // Unset the hook_user_update() for post affiliate pro since we're providing
+  // our own.
+  if ($hook == 'user_update') {
+   unset($implementations['commerce_post_affiliate_pro']);
+ }
+}
+
+/**
+ * Register new Affiliate on PAP server
+ */
+function medicalidfashions_pap_register_affiliate(&$edit, &$account) {
+
+  // Do not continue unless the user is an affilate.
+  if (!in_array('affiliate', array_values($account->roles))) {
+    return;
+  }
+
+  // If the company is not provided then we should not continue.
+  if (empty($edit['affiliate_company'])) {
+    return;
+  }
+
+  $pap_session_merchant = commerce_post_affiliate_pro_get_session();
+
+  // create new affiliate
+  $affiliate = new Pap_Api_Affiliate($pap_session_merchant);
+  $affiliate->setUsername($edit['affiliate_username']);
+  $affiliate->setFirstname($account->name);
+  $affiliate->setLastname($account->name);
+  $affiliate->setPassword($edit['affiliate_password']);
+  $affiliate->setRefid($edit['affiliate_refid']);
+  $affiliate->setField('data1', $edit['affiliate_web_url']);
+  $affiliate->setField('data2', $edit['affiliate_company']);
+  $affiliate->setField('data3', $edit['affiliate_street']);
+  $affiliate->setField('data4', $edit['affiliate_city']);
+  $affiliate->setField('data5', $edit['affiliate_state']);
+  $affiliate->setField('data6', $edit['affiliate_country']);
+
+  // Set the affiliate status if passed.
+  if (!empty($edit['affiliate_status'])) {
+    $affiliate->setStatus($edit['affiliate_status']);
+  }
+
+  try {
+    if ($affiliate->add()) {
+      drupal_set_message(t("Affiliate account was created sucessfully."), 'status');
+
+      // add record in DB
+      db_query("INSERT INTO {commerce_post_affiliate_pro_affiliates} (affiliate_id, uid, affiliate_username) VALUES (0, :uid, :username)", array(':uid' => $account->uid, ':username' => $edit['affiliate_username']));
+
+
+    } else {
+      drupal_set_message(t("Cannot register pap affiliate. Message: %error", array('%error' => $affiliate->getMessage())), 'error');
+    }
+  } catch (Exception $e) {
+    drupal_set_message(t("Error while communicating with PAP: %error", array('%error' => $e->getMessage())), 'error');
+  }
+}
+
+
+/**
+ * Update existing Affiliate account on PAP server
+ */
+function medicalidfashions_pap_update_affiliate(&$edit, &$account) {
+  // Do not continue unless the user is an affilate.
+  if (!in_array('affiliate', array_values($account->roles))) {
+    return;
+  }
+
+  // If the company is not provided then we should not continue.
+  if (empty($edit['affiliate_company'])) {
+    return;
+  }
+
+  $pap_session_merchant = commerce_post_affiliate_pro_get_session();
+
+  // load affiliate
+  $affiliate = new Pap_Api_Affiliate($pap_session_merchant);
+  $affiliate->setUsername($account->affiliate_username);
+  try {
+    $affiliate->load();
+  } catch (Exception $e) {
+    drupal_set_message(t("Error saving affiliate record: %error", array('%error' => $affiliate->getMessage())), 'error');
+    watchdog('commerce_post_affiliate_pro', "Error saving affiliate error: @error", array('@error' => $e->getMessage()), WATCHDOG_ERROR);
+    return;
+  }
+
+  if($edit['affiliate_password']) {
+    $affiliate->setPassword($edit['affiliate_password']);
+  }
+
+  $affiliate->setField('data1', $edit['affiliate_web_url']);
+  $affiliate->setField('data2', $edit['affiliate_company']);
+  $affiliate->setField('data3', $edit['affiliate_street']);
+  $affiliate->setField('data4', $edit['affiliate_city']);
+  $affiliate->setField('data5', $edit['affiliate_state']);
+  $affiliate->setField('data6', $edit['affiliate_country']);
+
+  // Adjust the affilate's stauts if it's set (only by admin).
+  if (!empty($edit['affiliate_status'])) {
+    $affiliate->setStatus($edit['affiliate_status']);
+  }
+
+  try {
+    if ($affiliate->save()) {
+      drupal_set_message(t("Affiliate account was udated sucessfully."), 'status');
+    }
+    else {
+      drupal_set_message(t("Cannot update affiliate. Message: %error", array('%error' => $affiliate->getMessage())), 'error');
+      watchdog('commerce_post_affiliate_pro', "Error saving affiliate error: @error", array('@error' => $e->getMessage()), WATCHDOG_ERROR);
+      return;
+    }
+  } catch (Exception $e) {
+    drupal_set_message(t("Error while communicating with PAP: %error", array('%error' => $e->getMessage())), 'error');
+    watchdog('commerce_post_affiliate_pro', "Error saving affiliate error: @error", array('@error' => $e->getMessage()), WATCHDOG_ERROR);
+    return;
+  }
+
+}
+
+/**
+ * Load Affiliate's data from PAP server
+ */
+function medicalidfashions_pap_load_affiliate($affiliate_username) {
+  $affiliate_data = array();
+  $pap_session_merchant = commerce_post_affiliate_pro_get_session();
+  // create new affiliate
+  $affiliate = new Pap_Api_Affiliate($pap_session_merchant);
+  $affiliate->setUsername($affiliate_username);
+  try {
+    $affiliate->load();
+  } catch (Exception $e) {
+    drupal_set_message(t("Cannot load record: %error", array('%error' => $affiliate->getMessage())), 'error');
+    watchdog('commerce_post_affiliate_pro', "Load user error: @error", array('@error' => $e->getMessage()), WATCHDOG_ERROR);
+    return $affiliate_data;
+  }
+
+  $affiliate_data['user_id'] = $affiliate->getUserid();
+  $affiliate_data['firstname'] = $affiliate->getFirstname();
+  $affiliate_data['lastname'] = $affiliate->getLastname();
+  $affiliate_data['affiliate_refid'] = $affiliate->getRefid();
+  $affiliate_data['status'] = $affiliate->getStatus();
+  $affiliate_data['note'] = $affiliate->getNote();
+  $affiliate_data['affiliate_web_url'] = $affiliate->getField('data1');
+  $affiliate_data['affiliate_company'] = $affiliate->getField('data2');
+  $affiliate_data['affiliate_street'] = $affiliate->getField('data3');
+  $affiliate_data['affiliate_city'] = $affiliate->getField('data4');
+  $affiliate_data['affiliate_state'] = $affiliate->getField('data5');
+  $affiliate_data['affiliate_country'] = $affiliate->getField('data6');
+
+  return $affiliate_data;
+}

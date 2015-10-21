@@ -1,0 +1,4 @@
+name = Medical ID Fashions Product Attributes Display Overrides
+description = Implements hook attribute_field to override product attributes display.
+dependencies[] = commerce_product_attributes
+core = 7.x

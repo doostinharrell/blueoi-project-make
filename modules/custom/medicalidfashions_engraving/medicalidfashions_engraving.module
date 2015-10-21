@@ -1,0 +1,188 @@
+<?php
+
+function medicalidfashions_engraving_form_commerce_cart_add_to_cart_form_alter(&$form, &$form_state, $form_id) {
+  $product = $form_state['default_product'];
+  $engraving_form = medicalidfashions_engraving_get_product_engraving_form($product, $form);
+  if (!empty($engraving_form)) {
+    $form += $engraving_form;
+    $form['#submit'][] = 'medicalidfashions_engraving_product_engraving_submit';
+  }
+}
+
+/**
+ * Form callback for creating the engraving form on plate add to cart forms.
+ */
+function medicalidfashions_engraving_get_product_engraving_form($product, &$form_state) {
+  $form = array();
+  if (!empty($product->field_engraving_options)) {
+    $product_wrapper = entity_metadata_wrapper('commerce_product', $product);
+
+    $form['engraving'] = array(
+      '#type' => 'container',
+      '#tree' => TRUE,
+    );
+
+    global $user;
+    $order = commerce_cart_order_load($user->uid);
+    $free_items = medicalidfashions_engraving_count_free_plate_and_engraving_items($order);
+    $counts = medicalidfashions_engraving_plate_and_engraving_counts($order);
+
+    foreach ($product_wrapper->field_engraving_options as $key => $engraving_option_wrapper) {
+      $engraving_type = $engraving_option_wrapper->field_engraving_type->value();
+      $engraving_lines = $engraving_option_wrapper->field_engraving_number_of_lines->value();
+      $engraving_cost = $engraving_option_wrapper->field_engraving_cost_per_line->value();
+      $engraving_cost_type = $engraving_option_wrapper->field_engraving_cost_type->value();
+      $engraving_max_chars = $engraving_option_wrapper->field_engraving_max_chars->value();
+      $engraving_pricing = commerce_currency_format($engraving_cost['amount'], $engraving_cost['currency_code']);
+
+      // Show $0.00 when they should get a free engraving.
+      if (!empty($free_items) && $free_items >= $counts['engraving']) {
+        $engraving_pricing = commerce_currency_format(0, commerce_default_currency());
+      }
+
+      if (!empty($free_items) && $free_items >= $counts['plates']) {
+        $form_state['display_price'] = FALSE;
+      }
+
+      switch ($engraving_cost_type) {
+        case ('line'):
+          $pricing_type = t('+ @cost For Each Engraving Line', array('@cost' => $engraving_pricing));
+          break;
+        default:
+          $pricing_type = t('+ @cost For All @count Engraving Lines', array(
+            '@cost' => $engraving_pricing,
+            '@count' => $engraving_lines
+          ));
+      }
+
+      $form['engraving'][$engraving_type->name] = array(
+        '#type' => 'fieldset',
+        '#title' => t('Add An Engraving On The ') . $engraving_type->name . ' (' . $pricing_type . ')',
+      );
+      for ($line = 1; $line <= $engraving_lines; $line++) {
+        $line_max_length = NULL;
+        if (!empty($engraving_max_chars[$line - 1])) {
+          $line_max_length = $engraving_max_chars[$line - 1];
+        }
+        else {
+          if (!empty($engraving_max_chars)) {
+            $line_max_length = reset($engraving_max_chars);
+          }
+        }
+        $form['engraving'][$engraving_type->name]['line_value_' . $line] = array(
+          '#type' => 'textfield',
+          '#title' => 'Line ' . $line,
+          '#maxlength' => $line_max_length,
+          '#required' => ($line == 1 && $engraving_type->name == 'Back') ? TRUE : FALSE,
+        );
+        $form['engraving'][$engraving_type->name]['engraving_option_' . $line] = array(
+          '#type' => 'hidden',
+          '#default_value' => $key,
+        );
+      }
+    }
+  }
+  return $form;
+}
+
+
+/**
+ * Add to cart submit handler for creating engraving line items from plates.
+ */
+function medicalidfashions_engraving_product_engraving_submit($form, &$form_state) {
+  // Load the engraving product.
+  $product = commerce_product_load_by_sku('ENG-100B');
+
+  // Load the line item of the plate being added to the cart.
+  $product_line_item = $form_state['line_item'];
+  $product_line_item_wrapper = entity_metadata_wrapper('commerce_line_item', $product_line_item);
+
+  $order = commerce_order_load($product_line_item->order_id);
+
+  if (!empty($form_state['values']['engraving'])) {
+
+    // Create a new product line item from the ENGRAVING product.
+    $line_item = commerce_product_line_item_new($product, 1, $order->order_id, array(), 'engraving');
+    $line_item_wrapper = entity_metadata_wrapper('commerce_line_item', $line_item);
+
+    // Relate the product line item to this one.
+    $line_item_wrapper->field_related_line_items[] = $product_line_item->line_item_id;
+
+    // Add the product to the cart
+    commerce_cart_product_add($order->uid, $line_item);
+
+    // Relate the engraving line item to the product line item.
+    $product_line_item_wrapper->field_related_line_items[] = $line_item->line_item_id;
+    commerce_line_item_save($product_line_item);
+
+    // Loop through each of the submitted engraving lines/
+    foreach ($form_state['values']['engraving'] as $type => $engraving_lines) {
+      foreach ($engraving_lines as $key => $engraving_line) {
+        if (preg_match('/^line_value_(\d)/', $key, $match)) {
+          if (!empty($engraving_line)) {
+
+            // Create engraving field collections and attach them to the line item.
+            $option = $engraving_lines['engraving_option_' . $match[1]];
+            $product_wrapper = entity_metadata_wrapper('commerce_line_item', $product_line_item);
+            $engraving_option_wrapper = $product_wrapper->commerce_product->field_engraving_options[$option];
+
+            $engraving_line_entity = entity_create('field_collection_item', array('field_name' => 'field_engraving_line'));
+            $engraving_line_entity->setHostEntity('commerce_line_item', $line_item);
+            $engraving_line_wrapper = entity_metadata_wrapper('field_collection_item', $engraving_line_entity);
+            $engraving_line_wrapper->field_li_engraving_line->set(strtoupper($engraving_line));
+            $engraving_line_wrapper->field_engraving_line_label->set($engraving_option_wrapper->field_engraving_type->name->value() . ' (' . $match[1] . '): ' . strtoupper($engraving_line));
+            $engraving_line_wrapper->field_engraving_type->set($engraving_option_wrapper->field_engraving_type->value());
+            $engraving_line_wrapper->field_engraving_cost_per_line->set($engraving_option_wrapper->field_engraving_cost_per_line->value());
+            $engraving_line_wrapper->field_engraving_cost_type->set($engraving_option_wrapper->field_engraving_cost_type->value());
+            $engraving_line_entity->save();
+          }
+        }
+      }
+    }
+  }
+}
+/**
+ * Helper function to determine how many free plates and engravings should be
+ * available.
+ */
+function medicalidfashions_engraving_count_free_plate_and_engraving_items($order) {
+  if (empty($order)) {
+    return FALSE;
+  }
+  $free_items = 0;
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+  foreach ($order_wrapper->commerce_line_items as $line_item_wrapper) {
+    try {
+      $product_wrapper =  $line_item_wrapper->commerce_product;
+      $free = $product_wrapper->field_free_plate_and_engraving->value();
+    }
+    catch (EntityMetadataWrapperException $ex) {
+      $free = 0;
+    }
+    if (!empty($free)) {
+      $free_items++;
+    }
+  }
+  return $free_items;
+}
+
+function medicalidfashions_engraving_plate_and_engraving_counts ($order) {
+  if (empty($order)) {
+    return FALSE;
+  }
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+  $counts = array();
+  foreach ($order_wrapper->commerce_line_items as $line_item_wrapper) {
+    if ($line_item_wrapper->type->value() == 'engraving') {
+      $counts['engraving']++;
+    }
+
+    try {
+      if ($line_item_wrapper->commerce_product->type->value() == 'plates') {
+        $counts['plates']++;
+      }
+    }
+    catch (EntityMetadataWrapperException $ex) {}
+  }
+  return $counts;
+}

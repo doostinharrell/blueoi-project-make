@@ -1,0 +1,73 @@
+@media only screen and (max-width: 768px) {
+  /* line 2, ../../scss/components/tableit.scss */
+  .tableit {
+    clear: both;
+    width: 100%;
+    /* Hide table headers (but not display: none;, for accessibility) */
+    /* If first row acts as the table header */
+    /* Label the data */
+  }
+
+  /* line 9, ../../scss/components/tableit.scss */
+  table.tableit,
+  .tableit thead,
+  .tableit tbody,
+  .tableit th,
+  .tableit td,
+  .tableit tr {
+    display: block;
+  }
+
+  /* line 17, ../../scss/components/tableit.scss */
+  .tableit thead tr {
+    position: absolute;
+    top: -9999px;
+    left: -9999px;
+  }
+
+  /* line 22, ../../scss/components/tableit.scss */
+  .tableit.noHead tr:first-child {
+    position: absolute;
+    top: -9999px;
+    left: -9999px;
+  }
+
+  /* line 27, ../../scss/components/tableit.scss */
+  .tableit tr:after {
+    content: ".";
+    display: block;
+    clear: both;
+    visibility: hidden;
+    line-height: 0;
+    height: 0;
+  }
+
+  /* line 35, ../../scss/components/tableit.scss */
+  .tableit td {
+    /* Behave  like a "row" */
+    border: none;
+    position: relative;
+    padding-left: 50% !important;
+    white-space: normal;
+    text-align: left;
+    float: left;
+  }
+
+  /* line 44, ../../scss/components/tableit.scss */
+  .tableit td:before {
+    /* Now like a table header */
+    position: absolute;
+    top: 0px;
+    left: 0px;
+    width: 45%;
+    padding-right: 10px;
+    padding-left: 1em;
+    text-align: left;
+    font-weight: bold;
+  }
+
+  /* line 55, ../../scss/components/tableit.scss */
+  .tableit td:before {
+    content: attr(data-title);
+  }
+}

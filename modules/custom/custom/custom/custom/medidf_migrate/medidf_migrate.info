@@ -1,0 +1,10 @@
+name = Medical Id Fashions Migration
+description = Migrate data from ubercart
+core = 7.x
+
+dependencies[] = migrate
+dependencies[] = migrate_d2d
+dependencies[] = commerce_migrate_ubercart
+
+files[] = includes/order.inc
+files[] = includes/line_item.inc

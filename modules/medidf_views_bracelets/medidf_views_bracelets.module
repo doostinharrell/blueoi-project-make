@@ -1,0 +1,55 @@
+<?php
+/**
+ * @file medidf_views_bracelets.module
+ * Update associated_bracelets views and add the contextual node's 
+ * colors and styles.
+ */
+
+/**
+ * Implements hook_views_api().
+ */
+function medidf_views_bracelets_views_api() {
+  return array(
+    'api' => '3.0-alpha1',
+    'path' => drupal_get_path('module', 'medidf_views_bracelets'),
+  );
+}
+
+/**
+ * Implements hook_query_alter().
+ */
+function medidf_views_bracelets_query_alter(QueryAlterableInterface $query) {
+  if ($query->hasTag('medidf_views_bracelets')) {
+/*  	dpm($query); */
+	$node_context_nid = $query->alterMetaData['view']->args[0];
+	$similar_colors_tid = array();
+	$similar_styles_tid = array();
+	$similar_nids = array();  
+	$process_query = db_query("SELECT field_similar_colors_target_id FROM {field_data_field_similar_colors} where entity_id = :nid", array(":nid" => $node_context_nid ));
+	foreach ($process_query as $row) {
+	$similar_colors_tid[] = $row->field_similar_colors_target_id;
+	}  
+	$process_query = db_query("SELECT field_similar_styles_target_id FROM {field_data_field_similar_styles} where entity_id = :nid", array(":nid" => $node_context_nid ));
+	foreach ($process_query as $row) {
+	$similar_styles_tid[] = $row->field_similar_styles_target_id;
+	}
+	$process_query = db_query("SELECT entity_id FROM {field_data_field_similar_colors} where field_similar_colors_target_id in (:tids) and entity_id != :not_this_nid", 
+	array( ":tids" => implode(',', $similar_colors_tid),
+	":not_this_nid" => $node_context_nid,
+	));
+	foreach ($process_query as $row) {
+	$similar_nids[] = $row->entity_id;
+	}
+	$process_query = db_query("SELECT entity_id FROM {field_data_field_similar_styles} where field_similar_styles_target_id in (:tids) and entity_id != :not_this_nid",
+	array(":tids" => implode(',', $similar_styles_tid),
+	":not_this_nid" => $node_context_nid,
+	));
+	foreach ($process_query as $row) {
+	$similar_nids[] = $row->entity_id;
+	}
+	$similar_nids = array_unique($similar_nids);    
+	$similar_nids_condition = db_and();
+  	$similar_nids_condition->condition('node.nid', $similar_nids, 'IN');	
+	$query->condition($similar_nids_condition);    
+  }
+}

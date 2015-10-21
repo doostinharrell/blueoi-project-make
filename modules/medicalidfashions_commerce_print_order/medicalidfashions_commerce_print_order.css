@@ -1,0 +1,89 @@
+body {
+  padding: 10%;
+  background-color: #FFF !important;
+  max-width: 800px;
+  margin:0;
+  padding: 0;
+  font-family: arial;
+  font-size: 12px;
+}
+
+h1, h2 {
+  padding: 0;
+  margin: 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+
+table, th, td {
+   border: 1px solid black !important;
+   padding: 10px;
+}
+
+table.commerce-price-formatted-components {
+  width: 345px;
+  float: right;
+  margin-top: 10px;
+}
+
+table th.views-field-line-item-label {
+  width: 110px;
+}
+
+table th.views-field-medicalidfashions-line-item-note {
+  width: 200px;
+}
+
+table th.views-field-commerce-total,
+table td.component-total {
+  width: 60px;
+  text-align: right;
+}
+
+.contextual-links { display: none; }
+
+.field {
+  /*padding: 5px;*/
+}
+
+.field-label {
+  font-weight: bold;
+  float: left;
+}
+
+.label {
+  font-weight: bold;
+  float: left;
+  width: 150px;
+}
+
+.name-block {
+  clear: both;
+}
+
+.form-wrapper {
+  display: none;
+}
+
+.field-name-field-order-source,
+.field-name-field-order-validity {
+  display: none;
+}
+
+.field-name-field-order-donation,
+.field-name-field-order-comments,
+.field-name-field-store-comments {
+  margin: 5px;
+}
+
+.field-name-field-order-comments .field-label {
+  float: none;
+}
+
+.payment-method {
+  clear: both;
+}

@@ -1,0 +1,118 @@
+
+// view defaults
+.pagination-centered {
+  padding-top: 1em;
+  clear: both;
+}
+
+.views-row {
+  &[class*="column"] + [class*="column"]:last-child {
+    float: left;
+  }
+}
+
+// view-store-catalog-grid
+.view-store-catalog-grid {
+  font-size: em-calc(16);
+  ul {
+    text-align: center;
+  }
+  .views-row {
+    display: inline-block;
+    margin: 0;
+    padding: 0 .5em;
+  }
+  .views-field-name {
+    text-align: center;
+    a {
+      font-size: em-calc(16);
+      line-height: em-calc(16);
+      color: $red;
+    }
+  }
+}
+
+.view-store-catalog-grid.view-display-id-page {
+  .view-content {
+    text-align: center;
+  }
+}
+
+//.front, .page-store-categories {
+//  .view-store-catalog-grid {
+//    font-size: em-calc(16);
+//    ul {
+//      text-align: center;
+//    }
+//    .views-row {
+//      display: inline-block;
+//      margin: 0;
+//      padding: 0 .5em;
+//    }
+//    .views-field-name {
+//      text-align: center;
+//      a {
+//        font-size: em-calc(16);
+//        line-height: em-calc(16);
+//        color: $red;
+//      }
+//    }
+//  }
+//}
+
+// view-store-catalog-lists & view-associated-bracelets
+.view-store-catalog-lists, .view-associated-bracelets {
+  .views-row {
+    margin-bottom: 1em;
+  }
+  .catalog-list-title, .catalog-list-price {
+    font-size: em-calc(12);
+  }
+  .catalog-list-price {float: right;}
+}
+
+// flexslider view-banner-images
+.view-banner-images {
+  .flex-caption {
+    background: black;
+    color: white;
+    text-align: center;
+    padding: .25em 0;
+  }
+  .flex-control-nav {
+    bottom: 0;
+    z-index: 10;
+  }
+}
+
+// view-plate-images
+.page-store-id-tags {
+  .main > .block-views-store-catalog-grid-block-1 {
+    display: none;
+  }
+}
+.view-plate-images {
+  overflow: hidden;
+  > .view-content {
+    overflow: hidden;
+    padding: .5em;
+    border: 1px solid $red;
+  }
+  .views-row {
+    margin-top: 1em;
+  }
+}
+
+// view-product-search
+.view-product-search {
+  .views-row {
+    margin-bottom: 1em;
+    padding-bottom: 1em;
+    border-bottom: 1px solid $grey-light;
+  }
+  .views-row-last {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+}

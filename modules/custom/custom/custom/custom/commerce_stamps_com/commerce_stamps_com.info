@@ -1,0 +1,11 @@
+name = Stamps.com
+description = Provides integration of Drupal Commerce and Stamps.com
+core = 7.x
+package = Commerce (shipping)
+dependencies[] = commerce
+dependencies[] = commerce_shipping
+
+files[] = commerce_stamps_com.admin.inc
+files[] = commerce_stamps_com.rules.inc
+files[] = commerce_stamps_com.rules_defaults.inc
+files[] = commerce_stamps_com.tokens.inc

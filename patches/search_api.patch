@@ -1,0 +1,141 @@
+diff -uprb a/CHANGELOG.txt b/CHANGELOG.txt
+--- CHANGELOG.txt	2015-10-06 03:14:58.000000000 -0400
++++ CHANGELOG.txt	2015-09-24 11:16:44.000000000 -0400
+@@ -1,7 +1,5 @@
+ Search API 1.x, dev (xx/xx/xxxx):
+ ---------------------------------
+-- #2565005 by drunken monkey: Properly escape labels of "checkboxes"/"radios"
+-  options
+ - #2524314 by drunken monkey: Fixed bundle-setting for taxonomy term indexes.
+ - #2550599 by ACF, drunken monkey: Fixed error on entity rebuilds.
+
+diff -uprb a/contrib/search_api_facetapi/search_api_facetapi.info b/contrib/search_api_facetapi/search_api_facetapi.info
+--- contrib/search_api_facetapi/search_api_facetapi.info	2015-10-06 03:19:02.000000000 -0400
++++ contrib/search_api_facetapi/search_api_facetapi.info	2015-09-24 11:16:44.000000000 -0400
+@@ -9,9 +9,9 @@ files[] = plugins/facetapi/adapter.inc
+ files[] = plugins/facetapi/query_type_term.inc
+ files[] = plugins/facetapi/query_type_date.inc
+
+-; Information added by Drupal.org packaging script on 2015-10-06
+-version = "7.x-1.16+4-dev"
++; Information added by Drupal.org packaging script on 2015-09-23
++version = "7.x-1.16+3-dev"
+ core = "7.x"
+ project = "search_api"
+-datestamp = "1444115942"
++datestamp = "1443009846"
+
+diff -uprb a/contrib/search_api_views/search_api_views.info b/contrib/search_api_views/search_api_views.info
+--- contrib/search_api_views/search_api_views.info	2015-10-06 03:19:02.000000000 -0400
++++ contrib/search_api_views/search_api_views.info	2015-09-24 11:16:44.000000000 -0400
+@@ -27,9 +27,9 @@ files[] = includes/handler_sort.inc
+ files[] = includes/plugin_cache.inc
+ files[] = includes/query.inc
+
+-; Information added by Drupal.org packaging script on 2015-10-06
+-version = "7.x-1.16+4-dev"
++; Information added by Drupal.org packaging script on 2015-09-23
++version = "7.x-1.16+3-dev"
+ core = "7.x"
+ project = "search_api"
+-datestamp = "1444115942"
++datestamp = "1443009846"
+
+diff -uprb a/includes/callback_language_control.inc b/includes/callback_language_control.inc
+--- includes/callback_language_control.inc	2015-10-06 03:14:58.000000000 -0400
++++ includes/callback_language_control.inc	2015-09-07 15:36:01.000000000 -0400
+@@ -70,7 +70,7 @@ class SearchApiAlterLanguageControl exte
+       foreach ($list as $lang) {
+         $name = t($lang->name);
+         $native = $lang->native;
+-        $languages[$lang->language] = check_plain(($name == $native) ? $name : "$name ($native)");
++        $languages[$lang->language] = ($name == $native) ? $name : "$name ($native)";
+         if (!$lang->enabled) {
+           $languages[$lang->language] .= ' [' . t('disabled') . ']';
+         }
+diff -uprb a/includes/datasource_entity.inc b/includes/datasource_entity.inc
+--- includes/datasource_entity.inc	2015-10-06 03:14:58.000000000 -0400
++++ includes/datasource_entity.inc	2015-09-24 11:16:44.000000000 -0400
+@@ -253,7 +253,7 @@ class SearchApiEntityDataSourceControlle
+       '#type' => 'checkboxes',
+       '#title' => t('Bundles'),
+       '#description' => t('Restrict the entity bundles that will be included in this index. Leave blank to include all bundles. This setting cannot be changed for existing indexes.'),
+-      '#options' => array_map('check_plain', $options),
++      '#options' => $options,
+       '#attributes' => array('class' => array('search-api-checkboxes-list')),
+       '#disabled' => !empty($form_state['index']),
+     );
+diff -uprb a/includes/datasource_multiple.inc b/includes/datasource_multiple.inc
+--- includes/datasource_multiple.inc	2015-10-06 03:14:58.000000000 -0400
++++ includes/datasource_multiple.inc	2015-09-07 15:36:01.000000000 -0400
+@@ -252,7 +252,7 @@ class SearchApiCombinedEntityDataSourceC
+       '#type' => 'checkboxes',
+       '#title' => t('Entity types'),
+       '#description' => t('Select the entity types which should be included in this index.'),
+-      '#options' => array_map('check_plain', search_api_entity_type_options_list()),
++      '#options' => search_api_entity_type_options_list(),
+       '#attributes' => array('class' => array('search-api-checkboxes-list')),
+       '#disabled' => !empty($form_state['index']),
+       '#required' => TRUE,
+diff -uprb a/includes/processor.inc b/includes/processor.inc
+--- includes/processor.inc	2015-10-06 03:14:58.000000000 -0400
++++ includes/processor.inc	2015-09-07 15:36:01.000000000 -0400
+@@ -172,7 +172,7 @@ abstract class SearchApiAbstractProcesso
+       $default_fields = drupal_map_assoc(array_keys($this->options['fields']));
+     }
+     foreach ($fields as $name => $field) {
+-      $field_options[$name] = check_plain($field['name']);
++      $field_options[$name] = $field['name'];
+       if (!empty($default_fields[$name]) || (!isset($this->options['fields']) && $this->testField($name, $field))) {
+         $default_fields[$name] = $name;
+       }
+diff -uprb a/includes/processor_highlight.inc b/includes/processor_highlight.inc
+--- includes/processor_highlight.inc	2015-10-06 03:14:58.000000000 -0400
++++ includes/processor_highlight.inc	2015-09-07 15:36:01.000000000 -0400
+@@ -86,12 +86,12 @@ class SearchApiHighlight extends SearchA
+         ),
+       ),
+     );
+-    // Exclude certain fulltext fields.
++    // Exclude certain fulltextfields
+     $fields = $this->index->getFields();
+     $fulltext_fields = array();
+     foreach ($this->index->getFulltextFields() as $field) {
+       if (isset($fields[$field])) {
+-        $fulltext_fields[$field] = check_plain($fields[$field]['name'] . ' (' . $field . ')');
++        $fulltext_fields[$field] = $fields[$field]['name'] . ' (' . $field . ')';
+       }
+     }
+     $form['exclude_fields'] = array(
+diff -uprb a/search_api.info b/search_api.info
+--- search_api.info	2015-10-06 03:19:02.000000000 -0400
++++ search_api.info	2015-09-24 11:16:44.000000000 -0400
+@@ -36,9 +36,9 @@ files[] = includes/service.inc
+
+ configure = admin/config/search/search_api
+
+-; Information added by Drupal.org packaging script on 2015-10-06
+-version = "7.x-1.16+4-dev"
++; Information added by Drupal.org packaging script on 2015-09-23
++version = "7.x-1.16+3-dev"
+ core = "7.x"
+ project = "search_api"
+-datestamp = "1444115942"
++datestamp = "1443009846"
+
+diff -uprb a/tests/search_api_test.info b/tests/search_api_test.info
+--- tests/search_api_test.info	2015-10-06 03:19:02.000000000 -0400
++++ tests/search_api_test.info	2015-09-24 11:16:44.000000000 -0400
+@@ -10,9 +10,9 @@ files[] = search_api_test.module
+
+ hidden = TRUE
+
+-; Information added by Drupal.org packaging script on 2015-10-06
+-version = "7.x-1.16+4-dev"
++; Information added by Drupal.org packaging script on 2015-09-23
++version = "7.x-1.16+3-dev"
+ core = "7.x"
+ project = "search_api"
+-datestamp = "1444115942"
++datestamp = "1443009846"
+

@@ -1,0 +1,29 @@
+.node-type-bracelets {
+  .display-sizing-info, .display-pricing-info, .field-name-field-free-plate-and-engraving {
+    font-size: em-calc(10);
+    .form-item {
+      margin: 0;
+    }
+    .field-label {
+      float: left;
+    }
+  }
+}
+
+.node-plate {
+  .commerce-product-field-field-image {
+    clear: both;
+    margin-top: 2em;
+  }
+}
+
+.node {
+  .links {
+    margin: 0;
+    padding: 0;
+    li {
+      list-style: none;
+      margin: 0 .5em .5em 0;
+    }
+  }
+}

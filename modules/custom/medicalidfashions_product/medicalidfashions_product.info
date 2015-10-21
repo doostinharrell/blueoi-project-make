@@ -1,0 +1,7 @@
+name = Medical ID Fashions Product
+description = Provides product customization for medicalidfashions.com
+core = 7.x
+dependencies[] = commerce
+dependencies[] = commerce_product
+dependencies[] = commerce_line_item
+dependencies[] = medidf

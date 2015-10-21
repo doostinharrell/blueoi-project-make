@@ -1,0 +1,5 @@
+name = Commerce Status Alert
+description = Alerts store owners of orders that are paid, but still have a cart/checkout state
+core = 7.x
+
+dependencies[] = commerce

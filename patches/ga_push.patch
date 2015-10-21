@@ -1,0 +1,82 @@
+diff -uprb a/ga_push.info b/ga_push.info
+--- ga_push.info	2015-10-07 03:44:01.000000000 -0400
++++ ga_push.info	2015-09-20 06:19:00.000000000 -0400
+@@ -8,9 +8,9 @@ files[] = libs/ssga.class.inc
+ files[] = test/ga_push.test
+ configure = admin/config/system/ga-push/settings
+
+-; Information added by Drupal.org packaging script on 2015-10-07
+-version = "7.x-1.1-beta1+9-dev"
++; Information added by Drupal.org packaging script on 2015-09-20
++version = "7.x-1.1-beta1+8-dev"
+ core = "7.x"
+ project = "ga_push"
+-datestamp = "1444203841"
++datestamp = "1442744340"
+
+diff -uprb a/ga_push.module b/ga_push.module
+--- ga_push.module	2015-10-07 03:42:58.000000000 -0400
++++ ga_push.module	2015-09-20 06:18:35.000000000 -0400
+@@ -195,6 +195,14 @@ function ga_push_add($push, $type = GA_P
+           require_once $method['file'];
+         }
+
++        // @TODO: remove deprecated!
++        switch ($type) {
++          case GA_PUSH_TYPE_EVENT:
++            // If the VALUE argument is not numeric -> 1
++            $push['eventValue'] = isset($push['eventValue']) && is_numeric($push['eventValue']) ? $push['eventValue'] : 1;
++            break;
++        }
++
+         call_user_func($method['callback'], $push, $type, $options);
+       }
+       else {
+diff -uprb a/modules/browser/ga_push_browser.info b/modules/browser/ga_push_browser.info
+--- modules/browser/ga_push_browser.info	2015-10-07 03:44:01.000000000 -0400
++++ modules/browser/ga_push_browser.info	2015-09-20 06:19:00.000000000 -0400
+@@ -9,9 +9,9 @@ scripts[] = ga_push_browser.js
+ files[] = ga_push_browser.classes.inc
+ configure = admin/config/system/ga-push/browser
+
+-; Information added by Drupal.org packaging script on 2015-10-07
+-version = "7.x-1.1-beta1+9-dev"
++; Information added by Drupal.org packaging script on 2015-09-20
++version = "7.x-1.1-beta1+8-dev"
+ core = "7.x"
+ project = "ga_push"
+-datestamp = "1444203841"
++datestamp = "1442744340"
+
+diff -uprb a/modules/form_validate/ga_push_form_validate.info b/modules/form_validate/ga_push_form_validate.info
+--- modules/form_validate/ga_push_form_validate.info	2015-10-07 03:44:01.000000000 -0400
++++ modules/form_validate/ga_push_form_validate.info	2015-09-20 06:19:00.000000000 -0400
+@@ -7,9 +7,9 @@ dependencies[] = libraries
+ dependencies[] = ga_push
+ configure = admin/config/system/ga-push/form-validate
+
+-; Information added by Drupal.org packaging script on 2015-10-07
+-version = "7.x-1.1-beta1+9-dev"
++; Information added by Drupal.org packaging script on 2015-09-20
++version = "7.x-1.1-beta1+8-dev"
+ core = "7.x"
+ project = "ga_push"
+-datestamp = "1444203841"
++datestamp = "1442744340"
+
+diff -uprb a/modules/log/ga_push_log.info b/modules/log/ga_push_log.info
+--- modules/log/ga_push_log.info	2015-10-07 03:44:01.000000000 -0400
++++ modules/log/ga_push_log.info	2015-09-20 06:19:00.000000000 -0400
+@@ -6,9 +6,9 @@ dependencies[] = ga_push
+ dependencies[] = rules
+ configure = admin/config/workflow/rules/reaction/manage/ga_push_log_exception
+
+-; Information added by Drupal.org packaging script on 2015-10-07
+-version = "7.x-1.1-beta1+9-dev"
++; Information added by Drupal.org packaging script on 2015-09-20
++version = "7.x-1.1-beta1+8-dev"
+ core = "7.x"
+ project = "ga_push"
+-datestamp = "1444203841"
++datestamp = "1442744340"
+

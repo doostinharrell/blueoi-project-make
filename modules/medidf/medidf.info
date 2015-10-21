@@ -1,0 +1,7 @@
+name = Medical ID Fashions Custom Functions
+description = Provides customizations for the Medical ID Fashions website.
+package = MedIDf
+core = 7.x
+
+version = "7.x-1.0"
+core = "7.x"

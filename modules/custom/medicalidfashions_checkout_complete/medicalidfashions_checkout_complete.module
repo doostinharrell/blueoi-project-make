@@ -1,0 +1,25 @@
+<?php
+
+function medicalidfashions_checkout_complete_form_alter(&$form, &$form_state, $form_id){
+  if ($form_id == 'commerce_order_ui_order_form') {
+
+    $commerce_order = $form_state['commerce_order'];
+
+    // If status is pending or completed, order has completed checkout. So hide our button.
+    if(in_array($commerce_order->status, array('pending', 'processing', 'completed'))) {
+      return;
+    }
+
+    $form['actions']['complete_checkout'] = array(
+      '#type' => 'submit',
+      '#value' => 'Complete checkout process',
+      '#submit' => array('medicalidfashions_checkout_complete'),
+      '#weight' => 50,
+    );
+  }
+}
+
+function medicalidfashions_checkout_complete($form, &$form_state) {
+  rules_invoke_event('commerce_checkout_complete', $form_state['commerce_order']);
+  drupal_set_message(t('Order has been pushed through the checkout process.'), 'status', FALSE);
+}
