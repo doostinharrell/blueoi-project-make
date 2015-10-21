@@ -61,6 +61,7 @@ echo '=============================================='
 rm -Rf $TMP_PATH
 cd $BUILD_PATH
 drush rr
+drush updatedb -y
 drush cc all
 
 set +e
