@@ -261,10 +261,12 @@ projects[zen][version] = "3.1"
 projects[zurb_foundation][version] = "4.1"
 
 ; Modules
+projects[commerce_stamps_com][subdir] = "contrib"
 projects[commerce_stamps_com][download][type] = "git"
 projects[commerce_stamps_com][download][url] = "http://git.drupal.org/sandbox/andyg5000/1809018.git"
 projects[commerce_stamps_com][type] = "module"
 
+projects[commerce_status_alert][subdir] = "contrib"
 projects[commerce_status_alert][download][type] = "git"
 projects[commerce_status_alert][download][url] = "http://git.drupal.org/sandbox/andyg5000/2354317.git"
 projects[commerce_status_alert][type] = "module"
