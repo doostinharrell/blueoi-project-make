@@ -13,16 +13,16 @@ echo '=============================================='
 set -e
 
 if [ $BUILD_PATH ]; then
-  if [ $BUILD_PATH/sites/default/files ]; then
-    rsync -rq --delete --exclude-from=$WORKING_PATH/rsync.exclude $BUILD_PATH/sites/default/files $WORKING_PATH/files/
+  if [ $BUILD_PATH/sites/default/files/ ]; then
+    rsync -rq --delete --exclude-from=$WORKING_PATH/rsync.exclude $BUILD_PATH/sites/default/files/ $WORKING_PATH/files/
   fi
 
   if [ $BUILD_PATH/sites/all/modules/custom/ ]; then
-    rsync -rq --delete --exclude-from=$WORKING_PATH/rsync.exclude $BUILD_PATH/sites/all/modules/custom $WORKING_PATH/modules/
+    rsync -rq --delete --exclude-from=$WORKING_PATH/rsync.exclude $BUILD_PATH/sites/all/modules/custom/ $WORKING_PATH/modules/
   fi
 
   if [ $BUILD_PATH/sites/all/themes/custom/ ]; then
-    rsync -rq --delete --exclude-from=$WORKING_PATH/rsync.exclude $BUILD_PATH/sites/all/themes/custom $WORKING_PATH/themes/
+    rsync -rq --delete --exclude-from=$WORKING_PATH/rsync.exclude $BUILD_PATH/sites/all/themes/custom/ $WORKING_PATH/themes/
   fi
 fi
 
@@ -38,7 +38,11 @@ fi
 
 drush make $DRUSH_OPTS "$WORKING_PATH/$MAKEFILE" $BUILD_PATH
 
-# Set up symlinks
+# rsync files
+if [ $WORKING_PATH/libraries ]; then
+  rsync -vrq --exclude-from=$WORKING_PATH/rsync.exclude $WORKING_PATH/libraries/ $BUILD_PATH/sites/all/libraries
+fi
+
 if [ ! -h $BUILD_PATH/sites/all/themes/custom ]; then
   rsync -vrq --delete --exclude-from=$WORKING_PATH/rsync.exclude $WORKING_PATH/themes/ $BUILD_PATH/sites/all/themes/custom
 fi
