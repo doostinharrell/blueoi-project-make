@@ -24,6 +24,8 @@ fi
 drush make $DRUSH_OPTS "$WORKING_PATH/$MAKEFILE" $TMP_PATH
 rsync -vrq --delete --exclude-from=$WORKING_PATH/rsync.exclude $TMP_PATH/ $BUILD_PATH/
 
+echo 'Drupal Installation built'
+
 echo '=============================================='
 echo '              Creating Symlinks              '
 echo '=============================================='
@@ -45,6 +47,8 @@ if [ ! -L "$BUILD_PATH/sites/default/themes" ]; then
   ln -s ../../../project/themes ../www/sites/default/themes
 fi
 
+echo 'Symlinks created'
+
 echo '=============================================='
 echo '             Copying settings.php             '
 echo '=============================================='
@@ -53,6 +57,8 @@ echo '=============================================='
 if [ ! -L "$BUILD_PATH/sites/default/settings.php" ]; then
   cp ./settings.php ../www/sites/default/settings.php
 fi
+
+echo 'settings.php copied'
 
 echo '=============================================='
 echo '                   Clean Up                   '
@@ -65,6 +71,8 @@ drush updatedb -y
 drush cc all
 
 set +e
+
+echo 'Clean up complete'
 
 echo '=============================================='
 echo '            Project Build Complete            '
